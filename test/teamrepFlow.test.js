@@ -116,6 +116,8 @@ describe('approval handlers', () => {
           })),
         },
       },
+      deferUpdate: jest.fn(async () => {}),
+      deleteReply: jest.fn(async () => {}),
       update: jest.fn(async () => {}),
       followUp: jest.fn(async () => {}),
       _originalReact: originalReact,
@@ -123,7 +125,7 @@ describe('approval handlers', () => {
     };
   }
 
-  test('approve assigns the role and resolves the embed', async () => {
+  test('approve assigns the role, reacts ✅ and removes the public embed', async () => {
     const member = makeMember('u-appr-1');
     const interaction = makeInteraction('u-appr-1', member);
 
@@ -132,12 +134,11 @@ describe('approval handlers', () => {
     expect(member.roles.add).toHaveBeenCalledWith('role-tr');
     expect(interaction._hourglassRemove).toHaveBeenCalled();
     expect(interaction._originalReact).toHaveBeenCalledWith('✅');
-    const payload = interaction.update.mock.calls[0][0];
-    expect(payload.embeds[0].data.title).toContain('Approved');
-    expect(payload.components).toEqual([]);
+    expect(interaction.deleteReply).toHaveBeenCalled(); // public card gone; log-only record
+    expect(interaction.update).not.toHaveBeenCalled();
   });
 
-  test('reject never assigns the role', async () => {
+  test('reject never assigns the role and removes the public embed', async () => {
     const member = makeMember('u-rej-1');
     const interaction = makeInteraction('u-rej-1', member);
     interaction.customId = 'teamrep_reject:u-rej-1:orig-1';
@@ -147,22 +148,19 @@ describe('approval handlers', () => {
     expect(member.roles.add).not.toHaveBeenCalled();
     expect(interaction._hourglassRemove).toHaveBeenCalled();
     expect(interaction._originalReact).toHaveBeenCalledWith('❌');
-    const payload = interaction.update.mock.calls[0][0];
-    expect(payload.embeds[0].data.title).toContain('Rejected');
-    expect(payload.components).toEqual([]);
+    expect(interaction.deleteReply).toHaveBeenCalled();
   });
 
-  test('approving a member who left resolves the embed gracefully', async () => {
+  test('approving a member who left closes the request quietly', async () => {
     const interaction = makeInteraction('u-gone', null, { found: false });
 
     await handleTeamRepApprove(interaction);
 
-    const payload = interaction.update.mock.calls[0][0];
-    expect(payload.embeds[0].data.title).toContain('Expired');
+    expect(interaction.deleteReply).toHaveBeenCalled();
     expect(interaction.followUp).not.toHaveBeenCalled();
   });
 
-  test('a failed role assignment keeps the buttons for retry', async () => {
+  test('a failed role assignment keeps the public embed for retry', async () => {
     const member = makeMember('u-fail-1');
     member.roles.add = jest.fn(async () => {
       const err = new Error('Missing Permissions');
@@ -176,6 +174,6 @@ describe('approval handlers', () => {
     expect(interaction.followUp).toHaveBeenCalledWith(expect.objectContaining({
       content: expect.stringContaining('Could not assign'),
     }));
-    expect(interaction.update).not.toHaveBeenCalled();
+    expect(interaction.deleteReply).not.toHaveBeenCalled();
   });
 });

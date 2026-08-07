@@ -3,8 +3,12 @@
  * teamrepHandler.js — Approve / Reject buttons on Team Rep request embeds.
  *
  * The request itself is created by the messageCreate flow (see
- * events/messageCreate.teamrep.js); this module only resolves the admin's
+ * events/messageCreate.teamrep.js); this module resolves the admin's
  * decision. Both buttons are admin-gated by the router.
+ *
+ * The decision is recorded ONLY in the admin log channel: on the public
+ * channel the request embed is deleted and the original request message
+ * keeps just its final reaction (✅ / ❌ / ℹ️).
  */
 
 const { EmbedBuilder, MessageFlags } = require('discord.js');
@@ -16,7 +20,7 @@ const { assignTeamRep } = require('../../events/messageCreate.teamrep');
 /**
  * @param {string} title
  * @param {string} description
- * @param {number} color
+ * @param {number} [color]
  */
 function decisionEmbed(title, description, color = COLORS.warning) {
   return new EmbedBuilder()
@@ -51,6 +55,15 @@ async function clearPendingReaction(original) {
   await original.reactions?.resolve('⏳')?.remove().catch(() => {});
 }
 
+/**
+ * Removes the public request embed — the log channel is the only place the
+ * decision is spelled out. Safe to call after deferUpdate().
+ * @param {import('discord.js').ButtonInteraction} interaction
+ */
+async function removePublicEmbed(interaction) {
+  await interaction.deleteReply().catch(() => {});
+}
+
 /** @param {import('discord.js').ButtonInteraction} interaction */
 async function handleTeamRepApprove(interaction) {
   const roleId = process.env.TEAM_REP_ROLE_ID;
@@ -58,31 +71,32 @@ async function handleTeamRepApprove(interaction) {
     return interaction.followUp({ content: 'TEAM_REP_ROLE_ID is not configured.', flags: MessageFlags.Ephemeral });
   }
 
+  await interaction.deferUpdate();
+
   const { userId, originalId } = parseIds(interaction);
-  const guild = interaction.guild;
   const original = await fetchOriginal(interaction, originalId);
-  const member = await guild.members.fetch(userId).catch(() => null);
+  const member = await interaction.guild.members.fetch(userId).catch(() => null);
 
   if (!member) {
     await clearPendingReaction(original);
-    return interaction.update({
-      content: '',
-      embeds: [decisionEmbed('⚠️ Request Expired', 'The member could not be found — they may have left the server.')],
-      components: [],
-    });
+    sendLog(interaction.client, decisionEmbed(
+      '⚠️ Team Rep Request Expired',
+      `A request from <@${userId}> was closed: the member could not be found (they may have left the server).`
+    )).catch(() => {});
+    return removePublicEmbed(interaction);
   }
 
   if (member.roles.cache.has(roleId)) {
     await clearPendingReaction(original);
     await original?.react('ℹ️').catch(() => {});
-    return interaction.update({
-      content: '',
-      embeds: [decisionEmbed('✅ Already a Team Rep', `${member} already holds the role.`)],
-      components: [],
-    });
+    sendLog(interaction.client, decisionEmbed(
+      'ℹ️ Team Rep Request Closed',
+      `${member.user.tag} (<@${member.id}>) already held the role; the request was closed by <@${interaction.user.id}>.`
+    )).catch(() => {});
+    return removePublicEmbed(interaction);
   }
 
-  const res = await assignTeamRep(guild, member, roleId);
+  const res = await assignTeamRep(interaction.guild, member, roleId);
   if (!res.success) {
     // Keep the buttons so another admin can retry after fixing perms/hierarchy.
     logger.warn(`teamRep approve failed for ${member.id}: ${res.reason || res.error?.message}`);
@@ -105,15 +119,13 @@ async function handleTeamRepApprove(interaction) {
     .setTimestamp()
   ).catch(() => {});
 
-  return interaction.update({
-    content: '',
-    embeds: [decisionEmbed('✅ Team Rep Approved', `${member} was granted the role by <@${interaction.user.id}>.`, COLORS.success)],
-    components: [],
-  });
+  return removePublicEmbed(interaction);
 }
 
 /** @param {import('discord.js').ButtonInteraction} interaction */
 async function handleTeamRepReject(interaction) {
+  await interaction.deferUpdate();
+
   const { userId, originalId } = parseIds(interaction);
   const member = await interaction.guild.members.fetch(userId).catch(() => null);
 
@@ -131,15 +143,7 @@ async function handleTeamRepReject(interaction) {
     .setTimestamp()
   ).catch(() => {});
 
-  return interaction.update({
-    content: '',
-    embeds: [decisionEmbed(
-      '❌ Team Rep Rejected',
-      `The request from ${member ?? `<@${userId}>`} was denied by <@${interaction.user.id}>.`,
-      COLORS.error,
-    )],
-    components: [],
-  });
+  return removePublicEmbed(interaction);
 }
 
 module.exports = { handleTeamRepApprove, handleTeamRepReject };

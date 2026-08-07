@@ -24,8 +24,10 @@ details, map rotation, and node info, all driven from a single admin panel.
   hierarchy, with actionable hints for each issue.
 - **Team Rep approval queue** — members request the role by posting in
   `TEAM_REP_CHANNEL`; `TEAM_REP_PING_ROLE` gets pinged and admins approve or
-  reject with ✅/❌ buttons on the request (no more auto-assign). `/teamrep
-  add|remove` still works for manual management.
+  reject with ✅/❌ buttons on the request (no more auto-assign). Decisions
+  are recorded only in `ADMIN_LOG_CHANNEL` — the public channel keeps just
+  the final reaction on the request message. `/teamrep add|remove` still
+  works for manual management.
 - **Audit logging** — every admin action is logged to `ADMIN_LOG_CHANNEL`;
   the panel footer shows the most recent action.
 
