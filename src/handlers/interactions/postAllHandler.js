@@ -22,6 +22,7 @@ const { getServerDefaults } = require('../../config/runtime');
 const { saveServerData } = require('../../utils/lineupStore');
 const { saveNodesData }  = require('../../utils/nodesStore');
 const { ensureRotationPosted } = require('./rotationHandler');
+const { ensureMidCapPosted }   = require('./midCapHandler');
 
 const { probePanelState } = require('../../commands/admin/panel');
 
@@ -72,6 +73,13 @@ async function postRotationCore(client) {
     : { posted: false, reason: result.reason || 'Rotation upsert failed' };
 }
 
+async function postMidCapCore(client) {
+  const result = await ensureMidCapPosted(client);
+  return result.ok
+    ? { posted: true }
+    : { posted: false, reason: result.reason || 'Mid Cap upsert failed' };
+}
+
 async function postNodesCore(client, channelIds = null) {
   const configuredIds = (process.env.NODES_CHANNELS || '').split(',').map(s => s.trim()).filter(Boolean);
   const ids = channelIds ?? configuredIds;
@@ -113,6 +121,8 @@ async function handleAdminPostAllMissing(interaction) {
   const needsServerS2 = !state.serverS2;
   const needsRotation = !state.rotation;
   const needsNodes    = !state.nodes || state.nodes.hits.length < state.nodes.total;
+  // Only when the feature is configured — an unset MIDCAP_CHANNEL is not "missing".
+  const needsMidCap   = Boolean(process.env.MIDCAP_CHANNEL) && !state.midcap;
 
   const results = [];
 
@@ -131,6 +141,10 @@ async function handleAdminPostAllMissing(interaction) {
   if (needsRotation) {
     const r = await postRotationCore(interaction.client);
     results.push({ label: 'Map Rotation', ...r });
+  }
+  if (needsMidCap) {
+    const r = await postMidCapCore(interaction.client);
+    results.push({ label: 'Mid Cap Vote', ...r });
   }
   if (needsNodes) {
     const configuredNodeIds = (process.env.NODES_CHANNELS || '').split(',').map(s => s.trim()).filter(Boolean);

@@ -21,6 +21,13 @@ Items are grouped by priority and complexity.
   card in the admin log channel (pinging `TEAM_REP_PING_ROLE`); admins approve
   or reject with buttons. `/teamrep add|remove` for manual management.
   - Tuning env vars: `TEAM_REP_COOLDOWN_MS`, `TEAM_REP_MAX_RETRIES`, `TEAM_REP_BACKOFF_BASE_MS`
+- Mid Cap Vote — persistent embed in `MIDCAP_CHANNEL` where both teams vote on the
+  mid cap for the next match. Options come from the rotation's scheduled map; the
+  voter's faction role decides which side the vote counts for.
+  - Mid caps of all 20 maps live in `src/config/midCaps.js` (from the MWF data sheet)
+  - Ballots keyed by `date|map` in `data/midcap_votes.json`, so each match starts empty
+  - Posted from `/panel`; refreshed daily at 00:45 Warsaw and on startup
+  - Optional env var: `MIDCAP_CHANNEL` (unset disables the feature)
 - Clan Tag Automation — ported from the standalone TagSelector bot. Members set their
   own `[TAG] Name` nickname prefix with `/tag set` (autocompleted) and drop it with
   `/tag remove`; admins manage the list and other members' tags with

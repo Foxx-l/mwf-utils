@@ -5,6 +5,7 @@ const logger = require('./logger');
 const { COLORS } = require('../config/theme');
 const { getAllFactionRoleIds } = require('../config/factions');
 const { maybeAutoAdvanceRotation } = require('../handlers/interactions/rotationHandler');
+const { refreshMidCapMessage } = require('../handlers/interactions/midCapHandler');
 const { warsawDateParts, warsawToUnix } = require('./warsawTime');
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -101,6 +102,34 @@ function startRotationScheduler(client) {
   logger.info('Rotation scheduler started — daily check at 00:30 Warsaw time');
 }
 
+/**
+ * Keeps the Mid Cap vote pointed at the right match.
+ *
+ * Runs daily at 00:45 Europe/Warsaw — after the 00:30 rotation advance, so a
+ * month rollover is already reflected in the rotation state. The refresh is an
+ * upsert of the existing embed: once last night's match falls out of its live
+ * window, the embed flips to the next map with an empty tally on its own.
+ */
+function startMidCapScheduler(client) {
+  if (!process.env.MIDCAP_CHANNEL) {
+    logger.debug('Mid Cap scheduler not started — MIDCAP_CHANNEL not set');
+    return;
+  }
+
+  const expression = '45 0 * * *'; // 00:45 daily
+  if (!cron.validate(expression)) {
+    logger.error(`Invalid mid cap cron expression: ${expression}. Mid Cap scheduler not started.`);
+    return;
+  }
+
+  cron.schedule(expression, async () => {
+    const result = await refreshMidCapMessage(client);
+    if (!result?.ok) logger.warn(`Mid Cap daily refresh did not run: ${result?.reason || 'unknown reason'}`);
+  }, { timezone: 'Europe/Warsaw' });
+
+  logger.info('Mid Cap scheduler started — daily refresh at 00:45 Warsaw time');
+}
+
 async function resetFactionRoles(client) {
   logger.info('Running scheduled faction role reset...');
 
@@ -186,4 +215,4 @@ async function resetFactionRoles(client) {
   }
 }
 
-module.exports = { startScheduler, startRotationScheduler, getResetSchedule, getNextResetTime };
+module.exports = { startScheduler, startRotationScheduler, startMidCapScheduler, getResetSchedule, getNextResetTime };

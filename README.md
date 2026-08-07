@@ -32,6 +32,10 @@ details, map rotation, and node info, all driven from a single admin panel.
   with `/tag remove`. Admins manage the list and other members' tags with
   `/tags`. If a role named exactly like the tag exists it is granted, and any
   other tag role is removed.
+- **Mid cap vote** — a persistent embed in `MIDCAP_CHANNEL` where both teams
+  vote on the mid cap for the next match. The three options come from the map
+  the rotation has scheduled, and a member's faction role decides which side
+  their vote counts for.
 - **Audit logging** — every admin action is logged to `ADMIN_LOG_CHANNEL`;
   the panel footer shows the most recent action.
 
@@ -106,6 +110,7 @@ remaining values enable their corresponding features.
 | `TEAM_REP_ROLE_ID` | Role granted when a Team Rep request is approved (optional feature) |
 | `TEAM_REP_PING_ROLE` | Role pinged on every new Team Rep request (optional feature) |
 | `TAG_CHANNEL` | Where `/tags post` publishes the clan tag info embed (optional — defaults to the channel the command is run in) |
+| `MIDCAP_CHANNEL` | Cap selection channel for the mid cap vote embed (optional feature — unset disables it entirely) |
 
 Optional: `SERVER_S{1,2}_{NAME,PASSWORD}`, `RESET_DAY`, `RESET_HOUR`,
 `ROTATION_EVENT_TIME`, `FACTION_SWAP_COOLDOWN_SECONDS`,
@@ -137,7 +142,8 @@ posted, ↗ jump link) and five dropdowns:
 - 🖥️ **Server Details** — Post/Edit S1/S2
 - 🗺️ 📍 **Map Rotation & Nodes** — Post/Edit Rotation, Advance (+1 month),
   Post/Edit Nodes
-- 🛠️ **Panel** — Refresh Status, Post All Missing, Healthcheck, Clear Log Channel
+- 🛠️ **Panel** — Refresh Status, Post All Missing, Post/Refresh Mid Cap Vote,
+  Healthcheck, Clear Log Channel
 
 Destructive actions (Reset Roles, Clear Log Channel) require ephemeral
 confirmation and are rate-limited per user.
@@ -164,6 +170,33 @@ tags removed with `/tags remove` stay removed.
   nickname until they run `/tag remove`.
 - `/tags post` publishes the public info embed to `TAG_CHANNEL`, or to the
   current channel when that variable is unset.
+
+## Mid cap vote
+
+Set `MIDCAP_CHANNEL` to the cap selection channel and post the embed from
+`/panel` → **Post / Refresh Mid Cap Vote**. Without that variable the feature is
+inert: no embed, no scheduler, no panel row.
+
+- The match and its three options are derived from the map rotation, never
+  configured separately. Options come from `MID_CAPS` in
+  [`src/config/midCaps.js`](./src/config/midCaps.js) — the mid caps of all 20
+  maps, taken from the MIDWEEK FRONTLINE data sheet. Map names are matched
+  ignoring case, accents and punctuation, so a rotation event spelled
+  "Sainte-Mère-Église" still finds `SME`.
+- **Allies role → Allies vote, Axis role → Axis vote** (S2 roles count for the
+  same side as S1). A member with no faction role is asked to pick a side first;
+  one holding both is refused rather than guessed at.
+- One vote per member. Clicking another cap moves the vote, clicking the same
+  cap again takes it back. Each cap shows a bar per team, scaled to the highest
+  single count, and the description names each team's front runner (or the tie).
+- Ballots are keyed by match (`date|map`), so **every match starts with an empty
+  poll** — last week's votes can never leak in, and nothing has to reset them.
+  A match stays current until 6 hours after kick-off, so the embed keeps showing
+  tonight's map during the game.
+- A daily job at 00:45 Warsaw refreshes the embed (and it also refreshes on
+  startup), so once a match is over the poll flips to the next map on its own.
+- Votes are not written to the audit log — the embed is the record. Posting or
+  refreshing the embed from the panel is logged.
 
 ## Map rotation safety
 
@@ -192,6 +225,9 @@ Do not run `npm start` at the same time as PM2.
 - **Rotation auto-advance** — daily at 00:30 Warsaw; advances at calendar-month
   boundaries and catches up multiple missed months in one operation (maximum
   24 per run), then updates Discord once.
+- **Mid cap refresh** — daily at 00:45 Warsaw (after the rotation advance);
+  re-renders the vote embed so it follows the rotation to the next match.
+  Skipped when `MIDCAP_CHANNEL` is unset.
 
 ## Development
 

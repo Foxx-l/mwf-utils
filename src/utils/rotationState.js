@@ -33,6 +33,8 @@ const MONTH_NAMES = Object.freeze([
 ]);
 const STATE_VERSION = 1;
 const MAX_CATCH_UP_MONTHS = 24;
+// How long after kick-off an event still counts as the current match.
+const LIVE_WINDOW_HOURS = 6;
 
 function monthKey(year, month) {
   return year * 12 + month;
@@ -186,6 +188,38 @@ function parseEditableEvents(text, expected, label, eventTime = getRotationEvent
     events.push({ date, time: eventTime, map });
   }
   return events;
+}
+
+/**
+ * The match the rotation is currently pointing at: the next scheduled event,
+ * or the one in progress. An event stays "current" for LIVE_WINDOW_HOURS after
+ * its start time so features keep showing tonight's map during the match
+ * instead of jumping to next week the moment it kicks off.
+ *
+ * @param {RotationState|null} state
+ * @param {Date} [now]
+ * @param {number} [liveWindowHours]
+ * @returns {{ date: string, time: string, map: string, unix: number, live: boolean }|null}
+ */
+function currentEvent(state, now = new Date(), liveWindowHours = LIVE_WINDOW_HOURS) {
+  if (!state?.months) return null;
+  const nowUnix = Math.floor(now.getTime() / 1000);
+  const windowSeconds = Math.max(0, liveWindowHours) * 3600;
+
+  const events = state.months
+    .flatMap(month => month.events || [])
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  for (const event of events) {
+    const date = parseIsoDate(event.date);
+    if (!date) continue;
+    const time = event.time || getRotationEventTime();
+    const unix = warsawToUnix(date.year, date.month, date.day, time);
+    if (unix + windowSeconds < nowUnix) continue; // already finished
+    return { date: event.date, time, map: event.map, unix, live: unix <= nowUnix };
+  }
+  return null;
 }
 
 function deriveNextMapIndex(months, fallback = 0) {
@@ -346,6 +380,8 @@ module.exports = {
   MAP_CYCLE,
   STATE_VERSION,
   MAX_CATCH_UP_MONTHS,
+  LIVE_WINDOW_HOURS,
+  currentEvent,
   warsawDateParts,
   monthHeader,
   parseMonthHeader,

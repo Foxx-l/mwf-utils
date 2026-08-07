@@ -57,6 +57,17 @@ describe('findRoute', () => {
     const route = router.findRoute(router.SELECT_ROUTES, 'admin_lineup_select', 'edit:S2');
     expect(route).not.toBeNull();
   });
+
+  test('mid cap votes route by prefix and are not admin-gated', () => {
+    const route = router.findRoute(router.BUTTON_ROUTES, 'midcap_vote:2026-08-12:1');
+    expect(route).not.toBeNull();
+    expect(route.admin).toBeUndefined();
+  });
+
+  test('the mid cap panel action is audit-logged', () => {
+    const route = router.findRoute(router.SELECT_ROUTES, 'admin_panel_select', 'midcap');
+    expect(route.track).toBe('Post Mid Cap Vote');
+  });
 });
 
 describe('execute() dispatch', () => {
