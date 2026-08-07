@@ -32,15 +32,7 @@ const {
 const { loadRotationMsgId, clearRotationMsgId, loadRotationState, rotationHistoryCount } = require('./rotationStore');
 const { monthHeader, MAP_CYCLE, warsawDateParts, validateState } = require('./rotationState');
 const { FACTIONS } = require('../config/factions');
-
-const REQUIRED_ENV_VARS = [
-  'GUILD_ID',
-  'FACTION_CHANNEL',
-  'LINEUP_CHANNEL',
-  'SERVER_DETAILS_CHANNEL',
-  'MAP_ROTATION_CHANNEL',
-  'NODES_CHANNELS',
-];
+const { HEALTHCHECK_ENV_VARS: REQUIRED_ENV_VARS } = require('../config/constants');
 
 const CHANNEL_CHECKS = [
   { envVar: 'FACTION_CHANNEL',        label: 'Faction',        needsManage: false, multiple: false },
@@ -93,15 +85,28 @@ async function checkChannelAccess(client, channelId, needsManage) {
   }
 }
 
+// Discord API error codes that genuinely mean "gone":
+//   10003 Unknown Channel · 10008 Unknown Message
+// Anything else (rate limit, 5xx, network blip) returns `null` = "unknown"
+// so a transient failure can never wipe a valid cache pointer.
+const GONE_CODES = new Set([10003, 10008]);
+
 async function messageExists(client, channelId, messageId) {
   if (!channelId || !messageId) return null; // nothing to check
+
+  let channel;
   try {
-    const channel = await client.channels.fetch(channelId).catch(() => null);
-    if (!channel) return false;
-    const msg = await channel.messages.fetch(messageId).catch(() => null);
+    channel = await client.channels.fetch(channelId);
+  } catch (err) {
+    return GONE_CODES.has(err?.code) ? false : null;
+  }
+  if (!channel) return false;
+
+  try {
+    const msg = await channel.messages.fetch(messageId);
     return Boolean(msg);
-  } catch (_) {
-    return false;
+  } catch (err) {
+    return GONE_CODES.has(err?.code) ? false : null;
   }
 }
 

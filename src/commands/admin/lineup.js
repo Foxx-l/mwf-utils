@@ -1,6 +1,7 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const logger = require('../../utils/logger');
 const { COLORS } = require('../../config/theme');
+const { warsawDateParts: warsawParts, warsawToUnix } = require('../../utils/warsawTime');
 const { saveLineupData } = require('../../utils/lineupStore');
 
 const TIMES = {
@@ -9,43 +10,7 @@ const TIMES = {
   gameStart:      { h: 20, m: 0  },
 };
 
-function getWarsawOffsetHours(date) {
-  const utcMs    = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
-  const warsawMs = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Warsaw' })).getTime();
-  return Math.round((warsawMs - utcMs) / 3_600_000);
-}
 
-function warsawToUnix(year, month, day, hour, minute) {
-  const probe       = new Date(Date.UTC(year, month, day, hour, minute, 0));
-  const offsetHours = getWarsawOffsetHours(probe);
-  const utcHour     = hour - offsetHours;
-  return Math.floor(Date.UTC(year, month, day, utcHour, minute, 0) / 1000);
-}
-
-function warsawParts(date) {
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Europe/Warsaw',
-    year:     'numeric',
-    month:    '2-digit',
-    day:      '2-digit',
-    hour:     '2-digit',
-    minute:   '2-digit',
-    weekday:  'short',
-    hour12:   false,
-  });
-  const parts = Object.fromEntries(
-    fmt.formatToParts(date).filter(p => p.type !== 'literal').map(p => [p.type, p.value])
-  );
-  const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return {
-    year:    parseInt(parts.year,   10),
-    month:   parseInt(parts.month,  10) - 1,
-    day:     parseInt(parts.day,    10),
-    weekday: weekdayMap[parts.weekday] ?? 0,
-    hour:    parseInt(parts.hour,   10),
-    minute:  parseInt(parts.minute, 10),
-  };
-}
 
 function getNextWednesdayTimestamps() {
   const now = new Date();
@@ -99,11 +64,11 @@ module.exports = {
     if (allowedChannelId && interaction.channelId !== allowedChannelId) {
       return interaction.reply({
         content: `❌ This command can only be used in <#${allowedChannelId}>.`,
-        flags: 64,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
-    await interaction.deferReply({ flags: 64 });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const server     = interaction.options.getString('server');
     const attachment = interaction.options.getAttachment('image');
@@ -114,7 +79,7 @@ module.exports = {
 
     const lineupChannelId = process.env.LINEUP_CHANNEL;
     const channel = lineupChannelId
-      ? interaction.client.channels.cache.get(lineupChannelId)
+      ? await interaction.client.channels.fetch(lineupChannelId).catch(() => null)
       : interaction.channel;
 
     if (!channel) {
@@ -143,7 +108,7 @@ module.exports = {
     saveLineupData(channel.id, posted.id, defaultCaption, server);
 
     const logChannel = process.env.ADMIN_LOG_CHANNEL
-      ? interaction.client.channels.cache.get(process.env.ADMIN_LOG_CHANNEL)
+      ? await interaction.client.channels.fetch(process.env.ADMIN_LOG_CHANNEL).catch(() => null)
       : null;
     if (logChannel) {
       const logEmbed = new EmbedBuilder()

@@ -2,38 +2,31 @@ const { assignTeamRep } = require('../src/events/messageCreate.teamrep');
 
 describe('assignTeamRep', () => {
   test('returns missing_role when role not in guild', async () => {
-    const message = { guild: { roles: { cache: new Map() }, members: { fetch: jest.fn() } }, client: { user: { id: 'bot-id' } } };
+    const guild = { roles: { cache: new Map() } };
     const member = { roles: { cache: new Map(), add: jest.fn() } };
-    const res = await assignTeamRep(message, member, 'nonexistent-role-id');
+    const res = await assignTeamRep(guild, member, 'nonexistent-role-id');
     expect(res.fatal).toBe(true);
     expect(res.reason).toBe('missing_role');
   });
 
   test('returns role_hierarchy when bot role is too low', async () => {
     const role = { id: 'r1', position: 100 };
-    const rolesMap = new Map([['r1', role]]);
     const guild = {
-      roles: { cache: rolesMap },
-      members: { fetch: jest.fn().mockImplementation(id => {
-        if (id === 'bot-id') return Promise.resolve({ roles: { highest: { position: 50 } } });
-        return Promise.resolve(null);
-      })}
+      roles: { cache: new Map([['r1', role]]) },
+      members: { me: { roles: { highest: { position: 50 } } } },
     };
-    const message = { guild, client: { user: { id: 'bot-id' } } };
     const member = { roles: { cache: new Map(), add: jest.fn() } };
-    const res = await assignTeamRep(message, member, 'r1');
+    const res = await assignTeamRep(guild, member, 'r1');
     expect(res.fatal).toBe(true);
     expect(res.reason).toBe('role_hierarchy');
   });
 
   test('retries transient error then succeeds', async () => {
     const role = { id: 'r1', position: 0 };
-    const rolesMap = new Map([['r1', role]]);
     const guild = {
-      roles: { cache: rolesMap },
-      members: { fetch: jest.fn().mockResolvedValue({ roles: { highest: { position: 100 } } }) }
+      roles: { cache: new Map([['r1', role]]) },
+      members: { me: { roles: { highest: { position: 100 } } } },
     };
-    const message = { guild, client: { user: { id: 'bot-id' } } };
     let call = 0;
     const member = {
       roles: {
@@ -49,8 +42,23 @@ describe('assignTeamRep', () => {
         })
       }
     };
-    const res = await assignTeamRep(message, member, 'r1');
+    const res = await assignTeamRep(guild, member, 'r1');
     expect(res.success).toBe(true);
     expect(res.attempts).toBeGreaterThanOrEqual(2);
+  });
+
+  test('falls back to roles.fetch when the role is not cached', async () => {
+    const role = { id: 'r1', position: 0 };
+    const guild = {
+      roles: {
+        cache: new Map(),
+        fetch: jest.fn().mockResolvedValue(role),
+      },
+      members: { me: { roles: { highest: { position: 100 } } } },
+    };
+    const member = { roles: { cache: new Map(), add: jest.fn().mockResolvedValue(undefined) } };
+    const res = await assignTeamRep(guild, member, 'r1');
+    expect(guild.roles.fetch).toHaveBeenCalledWith('r1');
+    expect(res.success).toBe(true);
   });
 });

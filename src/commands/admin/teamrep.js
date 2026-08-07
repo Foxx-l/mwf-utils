@@ -1,8 +1,18 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } = require('discord.js');
 const logger = require('../../utils/logger');
+const { COLORS } = require('../../config/theme');
 const { sendLog } = require('../../handlers/interactions/shared');
-// assignTeamRep is exported from the messageCreate handler module
+// assignTeamRep is exported from the messageCreate handler module so the
+// automated channel flow and this manual command share one code path.
 const { assignTeamRep } = require('../../events/messageCreate.teamrep');
+
+function logEmbed(title, description) {
+  return new EmbedBuilder()
+    .setTitle(title)
+    .setDescription(description)
+    .setColor(COLORS.primary)
+    .setTimestamp();
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,7 +26,7 @@ module.exports = {
 
   async execute(interaction) {
     // Defer early because role operations can take >3s (Discord times out the interaction otherwise)
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const roleId = process.env.TEAM_REP_ROLE_ID;
     if (!roleId) return interaction.editReply({ content: 'TEAM_REP_ROLE_ID is not configured.' });
@@ -28,19 +38,17 @@ module.exports = {
 
     if (sub === 'add') {
       try {
-        const res = await assignTeamRep(interaction, guildMember, roleId);
+        const res = await assignTeamRep(interaction.guild, guildMember, roleId);
         if (res && res.success) {
           await interaction.editReply({ content: `Assigned Team Rep role to ${user.tag}.` });
           if (process.env.ADMIN_LOG_CHANNEL) {
-            const embed = {
-              title: 'Team Rep (manual) Assigned',
-              description: `${user.tag} was given the Team Rep role by ${interaction.user.tag}`,
-              timestamp: new Date()
-            };
-            sendLog(interaction.client, embed).catch(() => {});
+            sendLog(interaction.client, logEmbed(
+              'Team Rep (manual) Assigned',
+              `${user.tag} was given the Team Rep role by ${interaction.user.tag}`
+            )).catch(() => {});
           }
         } else {
-          await interaction.editReply({ content: `Failed to assign role: ${res.reason || res.error?.message || 'unknown'}` });
+          await interaction.editReply({ content: `Failed to assign role: ${res?.reason || res?.error?.message || 'unknown'}` });
         }
       } catch (err) {
         logger.warn(`teamrep add command failed: ${err.message}`);
@@ -51,12 +59,10 @@ module.exports = {
         await guildMember.roles.remove(roleId);
         await interaction.editReply({ content: `Removed Team Rep role from ${user.tag}.` });
         if (process.env.ADMIN_LOG_CHANNEL) {
-          const embed = {
-            title: 'Team Rep (manual) Removed',
-            description: `${user.tag} had the Team Rep role removed by ${interaction.user.tag}`,
-            timestamp: new Date()
-          };
-          sendLog(interaction.client, embed).catch(() => {});
+          sendLog(interaction.client, logEmbed(
+            'Team Rep (manual) Removed',
+            `${user.tag} had the Team Rep role removed by ${interaction.user.tag}`
+          )).catch(() => {});
         }
       } catch (err) {
         logger.warn(`teamrep remove failed: ${err.message}`);

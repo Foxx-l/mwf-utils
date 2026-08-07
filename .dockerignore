@@ -1,0 +1,24 @@
+# Keep secrets out of the build context — .env must NEVER be baked into an
+# image layer; runtime env comes from docker-compose `env_file`.
+.env
+.env.*
+!.env.example
+
+# Local state & logs
+data/
+logs/
+*.log
+
+# Dev artifacts
+node_modules/
+.git/
+.github/
+docs/
+test/
+coverage/
+*.patch
+.eslintrc.json
+docker-compose.yml
+Dockerfile
+README.md
+ROADMAP.md

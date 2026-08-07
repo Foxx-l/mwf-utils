@@ -54,16 +54,20 @@ async function tryAddRoleWithRetry(member, roleId) {
   return { success: false, error: new Error('exhausted retries'), attempts: MAX_RETRIES + 1 };
 }
 
-async function assignTeamRep(message, member, roleId) {
-  if (!message || !message.guild) return { success: false, fatal: true, reason: 'no_guild' };
+/**
+ * Assigns the Team Rep role with retry/backoff.
+ * Deliberately takes a guild (not a message) so both the messageCreate flow
+ * and the /teamrep slash command share the exact same code path.
+ */
+async function assignTeamRep(guild, member, roleId) {
+  if (!guild) return { success: false, fatal: true, reason: 'no_guild' };
 
-  const guild = message.guild;
-
-  const targetRole = guild.roles?.cache?.get ? guild.roles.cache.get(roleId) : null;
+  const targetRole = guild.roles?.cache?.get?.(roleId)
+    || (guild.roles?.fetch ? await guild.roles.fetch(roleId).catch(() => null) : null);
   if (!targetRole) return { success: false, fatal: true, reason: 'missing_role' };
 
   // Bot role hierarchy check
-  const botMember = await guild.members.fetch(message.client.user.id).catch(() => null);
+  const botMember = guild.members?.me ?? await guild.members.fetchMe().catch(() => null);
   if (botMember && botMember.roles?.highest && typeof botMember.roles.highest.position === 'number') {
     const botPos = botMember.roles.highest.position;
     const targetPos = targetRole.position ?? 0;
@@ -119,7 +123,7 @@ module.exports = {
       }
       let res;
       try {
-        res = await assignTeamRep(message, member, roleId);
+        res = await assignTeamRep(message.guild, member, roleId);
       } finally {
         requestInProgress.delete(userId);
       }
