@@ -25,15 +25,22 @@ details, map rotation, and node info, all driven from a single admin panel.
 - **Audit logging** — every admin action is logged to `ADMIN_LOG_CHANNEL`;
   the panel footer shows the most recent action.
 
+## Requirements
+
+- Docker with Docker Compose, or Node.js 20+
+- A Discord application and bot token
+- Bot permissions: View Channels, Send Messages, Embed Links, Attach Files,
+  Read Message History, Manage Messages, Manage Roles, and Manage Expressions
+
 ## Quick start (Docker)
 
 ```bash
-git clone https://github.com/janush7/faction-bot.git
-cd faction-bot
+git clone https://github.com/jemiel1/mwf-utils.git
+cd mwf-utils
 cp .env.example .env
 # edit .env and fill in IDs/tokens
 docker compose up -d --build
-docker compose run --rm bot node deploy-commands.js   # once, and after adding/editing slash commands
+docker compose run --rm bot node deploy-commands.js   # once, and after changing slash commands
 ```
 
 Update after a new release:
@@ -53,10 +60,10 @@ npm run deploy         # register slash commands (once)
 npm start
 ```
 
-Note: stores (lineup, rotation, nodes, last-action) persist under `/app/data`
-in the Docker image. When running outside Docker the bot will fail to write
-to that path — create the directory (`sudo mkdir -p /app/data && sudo chown
-$USER /app/data`) or adapt the paths in `src/utils/*Store.js`.
+Runtime state (lineups, rotation, nodes, and the latest admin action) is stored
+in `/app/data`. Docker Compose persists it in the `bot_data` volume. For a
+non-Docker run, create a writable `/app/data` directory or change the store
+paths in `src/utils/*Store.js`.
 
 ## Environment variables
 
@@ -76,8 +83,10 @@ See [`.env.example`](./.env.example) for the full list. Required:
 | `MAP_ROTATION_CHANNEL` | Channel for the map rotation embed |
 | `NODES_CHANNELS` | Comma-separated list of channels for the NODES embed |
 
-Optional: `SERVER_S{1,2}_{NAME,PASSWORD}`, `RESET_DAY`, `RESET_HOUR`,
-`FACTION_SWAP_COOLDOWN_SECONDS`, `LINEUP_COMMAND_CHANNEL`, `LOG_LEVEL`.
+Optional: `SERVER_S{1,2}_{NAME,PASSWORD}`, legacy `SERVER_{NAME,PASSWORD}`,
+`RESET_DAY`, `RESET_HOUR`, `FACTION_SWAP_COOLDOWN_SECONDS`,
+`FACTION_SWAP_CONCURRENCY`, `ADMIN_DESTRUCTIVE_COOLDOWN_SECONDS`,
+`ALLOWED_GUILDS`, `LINEUP_COMMAND_CHANNEL`, and `LOG_LEVEL`.
 
 ## Slash commands
 
@@ -114,6 +123,16 @@ confirmation and are rate-limited per user.
   the rotation embed is entirely in the past, shifts the window forward one
   month and auto-fills new Wednesdays from the map cycle.
 
+## Contributing
+
+Issues and pull requests are welcome. Run a syntax check before submitting:
+
+```bash
+find src -name '*.js' -exec node --check {} \;
+node --check deploy-commands.js
+```
+
 ## License
 
-Internal / community project; no formal license. Issues and PRs welcome.
+No license has been published. Unless a license is added, the repository is
+source-available for review but retains the author's default copyright.

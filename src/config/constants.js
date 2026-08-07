@@ -11,7 +11,7 @@ module.exports = {
   ],
 
   // Shared thumbnail used across all embeds
-  THUMBNAIL_URL: 'https://raw.githubusercontent.com/janush7/faction-bot/main/assets/MWF.png',
+  THUMBNAIL_URL: 'https://raw.githubusercontent.com/jemiel1/mwf-utils/main/assets/MWF.png',
 
   // Default content for the NODES embed
   DEFAULT_NODES: [
