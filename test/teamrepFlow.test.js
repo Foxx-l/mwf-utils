@@ -93,6 +93,7 @@ describe('request flow (messageCreate)', () => {
 describe('approval handlers', () => {
   function makeInteraction(userId, member, { found = true } = {}) {
     const originalReact = jest.fn(async () => {});
+    const hourglassRemove = jest.fn(async () => {});
     return {
       customId: `teamrep_approve:${userId}:orig-1`,
       user: { id: 'admin-1' },
@@ -107,10 +108,18 @@ describe('approval handlers', () => {
           }),
         },
       },
-      channel: { messages: { fetch: jest.fn(async () => ({ react: originalReact })) } },
+      channel: {
+        messages: {
+          fetch: jest.fn(async () => ({
+            react: originalReact,
+            reactions: { resolve: () => ({ remove: hourglassRemove }) },
+          })),
+        },
+      },
       update: jest.fn(async () => {}),
       followUp: jest.fn(async () => {}),
       _originalReact: originalReact,
+      _hourglassRemove: hourglassRemove,
     };
   }
 
@@ -121,6 +130,7 @@ describe('approval handlers', () => {
     await handleTeamRepApprove(interaction);
 
     expect(member.roles.add).toHaveBeenCalledWith('role-tr');
+    expect(interaction._hourglassRemove).toHaveBeenCalled();
     expect(interaction._originalReact).toHaveBeenCalledWith('✅');
     const payload = interaction.update.mock.calls[0][0];
     expect(payload.embeds[0].data.title).toContain('Approved');
@@ -135,6 +145,7 @@ describe('approval handlers', () => {
     await handleTeamRepReject(interaction);
 
     expect(member.roles.add).not.toHaveBeenCalled();
+    expect(interaction._hourglassRemove).toHaveBeenCalled();
     expect(interaction._originalReact).toHaveBeenCalledWith('❌');
     const payload = interaction.update.mock.calls[0][0];
     expect(payload.embeds[0].data.title).toContain('Rejected');

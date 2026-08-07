@@ -41,6 +41,16 @@ async function fetchOriginal(interaction, originalId) {
   return await interaction.channel?.messages?.fetch(originalId).catch(() => null) ?? null;
 }
 
+/**
+ * The request message carries a ⏳ while it awaits a decision; once one is
+ * made (approved, rejected, expired) the hourglass goes.
+ * @param {import('discord.js').Message | null} original
+ */
+async function clearPendingReaction(original) {
+  if (!original) return;
+  await original.reactions?.resolve('⏳')?.remove().catch(() => {});
+}
+
 /** @param {import('discord.js').ButtonInteraction} interaction */
 async function handleTeamRepApprove(interaction) {
   const roleId = process.env.TEAM_REP_ROLE_ID;
@@ -50,9 +60,11 @@ async function handleTeamRepApprove(interaction) {
 
   const { userId, originalId } = parseIds(interaction);
   const guild = interaction.guild;
+  const original = await fetchOriginal(interaction, originalId);
   const member = await guild.members.fetch(userId).catch(() => null);
 
   if (!member) {
+    await clearPendingReaction(original);
     return interaction.update({
       content: '',
       embeds: [decisionEmbed('⚠️ Request Expired', 'The member could not be found — they may have left the server.')],
@@ -61,7 +73,7 @@ async function handleTeamRepApprove(interaction) {
   }
 
   if (member.roles.cache.has(roleId)) {
-    const original = await fetchOriginal(interaction, originalId);
+    await clearPendingReaction(original);
     await original?.react('ℹ️').catch(() => {});
     return interaction.update({
       content: '',
@@ -80,7 +92,7 @@ async function handleTeamRepApprove(interaction) {
     });
   }
 
-  const original = await fetchOriginal(interaction, originalId);
+  await clearPendingReaction(original);
   await original?.react('✅').catch(() => {});
 
   sendLog(interaction.client, new EmbedBuilder()
@@ -106,6 +118,7 @@ async function handleTeamRepReject(interaction) {
   const member = await interaction.guild.members.fetch(userId).catch(() => null);
 
   const original = await fetchOriginal(interaction, originalId);
+  await clearPendingReaction(original);
   await original?.react('❌').catch(() => {});
 
   sendLog(interaction.client, new EmbedBuilder()
