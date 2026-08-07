@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Env-var requirements, in one place.
  * `startup`   — checked in src/index.js; the bot refuses to boot without them.

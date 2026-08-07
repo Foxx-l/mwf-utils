@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * healthcheck.js — Runs probes against the live Discord state and returns a
  * structured report for the admin panel.
@@ -170,19 +171,19 @@ async function runHealthcheck(client, guildId) {
   }
 
   // 2. Channels + permissions
-  const channelResults = await Promise.all(
-    CHANNEL_CHECKS.flatMap(cfg => {
-      const raw = process.env[cfg.envVar];
-      if (!raw) {
-        if (cfg.optional) return [];
-        return [Promise.resolve({ cfg, channelId: null, result: { ok: false, reason: 'env not set' } })];
-      }
-      const ids = cfg.multiple
-        ? raw.split(',').map(s => s.trim()).filter(Boolean)
-        : [raw.trim()];
-      return ids.map(async id => ({ cfg, channelId: id, result: await checkChannelAccess(client, id, cfg.needsManage) }));
-    })
-  );
+  /** @typedef {{ cfg: (typeof CHANNEL_CHECKS)[number], channelId: string | null, result: { ok: boolean, reason?: string } }} ChannelProbe */
+  const jobs = /** @type {Promise<ChannelProbe>[]} */ (CHANNEL_CHECKS.flatMap(cfg => {
+    const raw = process.env[cfg.envVar];
+    if (!raw) {
+      if (cfg.optional) return [];
+      return [Promise.resolve(/** @type {ChannelProbe} */ ({ cfg, channelId: null, result: { ok: false, reason: 'env not set' } }))];
+    }
+    const ids = cfg.multiple
+      ? raw.split(',').map(s => s.trim()).filter(Boolean)
+      : [raw.trim()];
+    return ids.map(async id => ({ cfg, channelId: id, result: await checkChannelAccess(client, id, cfg.needsManage) }));
+  }));
+  const channelResults = await Promise.all(jobs);
   for (const { cfg, channelId, result } of channelResults) {
     total++;
     if (result.ok) {

@@ -1,3 +1,4 @@
+// @ts-check
 const { EmbedBuilder } = require('discord.js');
 const { THUMBNAIL_URL } = require('../config/constants');
 const { COLORS } = require('../config/theme');

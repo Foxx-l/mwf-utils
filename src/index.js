@@ -1,3 +1,15 @@
+// @ts-check
+
+/**
+ * The discord.js Client plus the extensions this codebase attaches.
+ * @typedef {import('discord.js').Client<true> & {
+ *   commands: import('discord.js').Collection<string, {
+ *     data?: { toJSON: () => unknown },
+ *     execute: (interaction: import('discord.js').ChatInputCommandInteraction) => Promise<unknown>
+ *   }>
+ * }} MwfClient
+ */
+
 require('dotenv').config();
 const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require('discord.js');
 const logger = require('./utils/logger');
@@ -11,13 +23,13 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
-const client = new Client({
+const client = /** @type {MwfClient} */ (new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,  // required for channel.messages.fetch() in admin tools
   ]
-});
+}));
 
 client.commands = new Collection();
 

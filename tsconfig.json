@@ -1,0 +1,19 @@
+{
+  // Gradual typing: checkJs is OFF project-wide. Individual files opt in with
+  // a `// @ts-check` header + JSDoc annotations. Flip a file on, fix its
+  // errors, move to the next — no big-bang migration.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": false,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.js", "deploy-commands.js"]
+}

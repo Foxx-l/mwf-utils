@@ -1,3 +1,4 @@
+// @ts-check
 /** Persists the most recent admin action for the panel footer. */
 
 const fs = require('fs');

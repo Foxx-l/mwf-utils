@@ -1,3 +1,4 @@
+// @ts-check
 const cron = require('node-cron');
 const { EmbedBuilder } = require('discord.js');
 const logger = require('./logger');

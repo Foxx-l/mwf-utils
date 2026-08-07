@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * shared.js — Shared helpers used across interaction handlers.
  */
@@ -69,11 +70,11 @@ async function findLastBotMessage(channel, predicate, limit = 50) {
  * Removes a role from a list of members in batches to avoid hitting Discord's
  * rate limiter when there are many members.
  *
- * @param {GuildMember[]} members
+ * @param {import('discord.js').GuildMember[]} members
  * @param {string} roleId
  * @param {number} batchSize - Members per batch (default 5)
  * @param {number} delayMs   - Delay between batches in ms (default 500)
- * @returns {{ count: number, errors: string[] }}
+ * @returns {Promise<{ count: number, errors: string[] }>}
  */
 async function batchRoleRemove(members, roleId, batchSize = 5, delayMs = 500) {
   let count = 0;
@@ -83,8 +84,9 @@ async function batchRoleRemove(members, roleId, batchSize = 5, delayMs = 500) {
     const batch = members.slice(i, i + batchSize);
     const results = await Promise.allSettled(batch.map(m => m.roles.remove(roleId)));
     for (let j = 0; j < results.length; j++) {
-      if (results[j].status === 'fulfilled') count++;
-      else errors.push(`${batch[j].user.tag}: ${results[j].reason?.message}`);
+      const result = results[j];
+      if (result.status === 'fulfilled') count++;
+      else errors.push(`${batch[j].user.tag}: ${result.reason?.message}`);
     }
     // Pause between batches (skip delay after the last one)
     if (i + batchSize < members.length) {

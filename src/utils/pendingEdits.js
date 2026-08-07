@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * pendingEdits.js — Tiny in-memory TTL store for preview/confirm edit flows.
  *

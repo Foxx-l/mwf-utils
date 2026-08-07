@@ -1,3 +1,4 @@
+// @ts-check
 /** Persists lineup captions and server details in the configured data directory. */
 
 const fs = require('fs');

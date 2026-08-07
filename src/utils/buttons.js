@@ -1,3 +1,4 @@
+// @ts-check
 const { ActionRowBuilder, ButtonBuilder } = require('discord.js');
 const emojiState = require('./emojiState');
 const { FACTIONS } = require('../config/factions');

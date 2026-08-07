@@ -1,5 +1,7 @@
+// @ts-check
 const logger = require('../utils/logger');
 const { COLORS } = require('../config/theme');
+const { sendLog } = require('../handlers/interactions/shared');
 const { EmbedBuilder } = require('discord.js');
 
 function nonNegativeEnvNumber(name, fallback) {
@@ -135,7 +137,6 @@ module.exports = {
 
         const adminLog = process.env.ADMIN_LOG_CHANNEL;
         if (adminLog) {
-          const { sendLog } = require('../handlers/interactions/shared');
           const embed = new EmbedBuilder()
             .setTitle('Team Rep Role Assigned')
             .setColor(TEAM_REP_LOG_COLOR)
@@ -157,7 +158,6 @@ module.exports = {
         // Log a helpful admin message
         const adminLog = process.env.ADMIN_LOG_CHANNEL;
         if (adminLog) {
-          const { sendLog } = require('../handlers/interactions/shared');
           const embed = new EmbedBuilder()
             .setTitle('Team Rep Assignment Failed')
             .setColor(TEAM_REP_LOG_COLOR)
@@ -181,7 +181,6 @@ module.exports = {
       // Optional admin log for non-fatal failures
       const adminLog = process.env.ADMIN_LOG_CHANNEL;
       if (adminLog) {
-        const { sendLog } = require('../handlers/interactions/shared');
         const embed = new EmbedBuilder()
           .setTitle('Team Rep Assignment Failed')
           .setColor(TEAM_REP_LOG_COLOR)

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * adminCooldown.js — per-user, per-action cooldown for destructive admin
  * controls (e.g. Reset Roles, Clear Log Channel). Clears on process restart.

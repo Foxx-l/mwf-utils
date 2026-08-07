@@ -1,3 +1,4 @@
+// @ts-check
 const COLORS = Object.freeze({
   primary: 0x071321,
   success: 0x2ecc71,

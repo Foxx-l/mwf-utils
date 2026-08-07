@@ -1,3 +1,4 @@
+// @ts-check
 /** Persists NODES embed data in the configured data directory. */
 
 const fs = require('fs');

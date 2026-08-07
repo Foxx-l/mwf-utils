@@ -152,6 +152,23 @@ Do not run `npm start` at the same time as PM2.
   boundaries and catches up multiple missed months in one operation (maximum
   24 per run), then updates Discord once.
 
+## Development
+
+```bash
+npm run lint        # ESLint
+npm run typecheck   # tsc over the @ts-check'd files (gradual typing)
+npm test            # jest
+```
+
+Typing is gradual: `tsconfig.json` has `checkJs` off and individual files opt
+in with a `// @ts-check` header plus JSDoc annotations. To convert another
+file, add the header and fix what `npm run typecheck` reports.
+
+Interaction routing is table-driven (`src/events/interactionCreate.js`):
+adding a button/modal/select flow means adding a row to `BUTTON_ROUTES`,
+`MODAL_ROUTES` or `SELECT_ROUTES` — the dispatcher, the admin gate and the
+audit-log wrapping are shared.
+
 ## License
 
 Internal / community project; no formal license. Issues and PRs welcome.

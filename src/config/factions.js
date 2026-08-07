@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * factions.js — Central definition of all selectable factions.
  *

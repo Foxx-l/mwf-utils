@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * warsawTime.js — Single source of truth for Europe/Warsaw wall-clock ↔
  * Unix-timestamp conversion.

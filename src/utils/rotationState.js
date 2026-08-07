@@ -1,3 +1,25 @@
+// @ts-check
+
+/**
+ * @typedef {Object} RotationEvent
+ * @property {string} date  ISO date `YYYY-MM-DD`
+ * @property {string} time  24-hour `HH:MM`, Europe/Warsaw
+ * @property {string} map
+ *
+ * @typedef {Object} RotationMonth
+ * @property {number} year
+ * @property {number} month 0-11
+ * @property {RotationEvent[]} events
+ *
+ * @typedef {Object} RotationState
+ * @property {1} version
+ * @property {number} revision  monotonically increasing; guards edit races
+ * @property {string|null} messageId  Discord message currently rendering this state
+ * @property {[RotationMonth, RotationMonth]} months
+ * @property {number} nextMapIndex  index into MAP_CYCLE for the next generated month
+ * @property {string} updatedAt  ISO timestamp
+ */
+
 const { getRotationEventTime } = require('../config/runtime');
 const {
   warsawDateParts,
