@@ -25,6 +25,17 @@ details, map rotation, and node info, all driven from a single admin panel.
 - **Audit logging** — every admin action is logged to `ADMIN_LOG_CHANNEL`;
   the panel footer shows the most recent action.
 
+## Prerequisites
+
+In the [Discord Developer Portal](https://discord.com/developers/applications)
+for your bot application, under **Bot → Privileged Gateway Intents**, enable:
+
+- **Server Members Intent** — required. The weekly role reset, healthcheck,
+  and `/teamrep` all fetch guild members; without this intent Discord rejects
+  those calls with a cryptic "Used disallowed intents" error.
+
+Message Content Intent is **not** required (the bot never reads message text).
+
 ## Quick start (Docker)
 
 ```bash
@@ -77,9 +88,13 @@ remaining values enable their corresponding features.
 | `SERVER_DETAILS_CHANNEL` | Channel for server details embeds |
 | `MAP_ROTATION_CHANNEL` | Channel for the map rotation embed |
 | `NODES_CHANNELS` | Comma-separated list of channels for the NODES embed |
+| `TEAM_REP_CHANNEL` | Channel where posting any message requests the Team Rep role (optional feature) |
+| `TEAM_REP_ROLE_ID` | Role assigned by the Team Rep automation (optional feature) |
 
 Optional: `SERVER_S{1,2}_{NAME,PASSWORD}`, `RESET_DAY`, `RESET_HOUR`,
-`FACTION_SWAP_COOLDOWN_SECONDS`, `LINEUP_COMMAND_CHANNEL`, `LOG_LEVEL`.
+`ROTATION_EVENT_TIME`, `FACTION_SWAP_COOLDOWN_SECONDS`,
+`ADMIN_DESTRUCTIVE_COOLDOWN_SECONDS`, `ALLOWED_GUILDS`,
+`LINEUP_COMMAND_CHANNEL`, `DATA_DIR`, `LOG_LEVEL`.
 
 ## Slash commands
 
@@ -87,6 +102,7 @@ Optional: `SERVER_S{1,2}_{NAME,PASSWORD}`, `RESET_DAY`, `RESET_HOUR`,
 |---|---|---|
 | `/panel` | Administrator | Open the admin control panel |
 | `/lineup server:<S1\|S2> image:<file>` | Administrator | Post a lineup image |
+| `/teamrep add\|remove member:<user>` | Administrator | Manually assign/remove the Team Rep role |
 | `/ping` | anyone | Bot latency check |
 
 Everything else (posting/editing server details, rotation, nodes, reloading
