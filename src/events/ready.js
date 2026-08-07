@@ -4,9 +4,8 @@ const logger = require('../utils/logger');
 const { COLORS } = require('../config/theme');
 const emojiState = require('../utils/emojiState');
 const { createFactionButtons } = require('../utils/buttons');
-const { startScheduler, startRotationScheduler, startMidCapScheduler } = require('../utils/scheduler');
+const { startScheduler, startRotationScheduler } = require('../utils/scheduler');
 const { warmRotationCache } = require('../handlers/interactions/rotationHandler');
-const { refreshMidCapMessage } = require('../handlers/interactions/midCapHandler');
 const { sendLog } = require('../handlers/interactions/shared');
 const { ensureDataDir, DATA_DIR } = require('../utils/dataDir');
 const pkg = require('../../package.json');
@@ -26,20 +25,12 @@ module.exports = {
 
     startScheduler(client);
     startRotationScheduler(client);
-    startMidCapScheduler(client);
 
     const dataWritable = ensureDataDir();
     const rotation = await warmRotationCache(client).catch(err => {
       logger.warn(`warmRotationCache failed: ${err.message}`);
       return { ok: false, reason: err.message };
     });
-
-    // The vote embed's options depend on the rotation, so refresh it once the
-    // rotation cache is warm — a restart after the match then already shows
-    // next week's map instead of a stale poll.
-    const midcap = process.env.MIDCAP_CHANNEL
-      ? await refreshMidCapMessage(client)
-      : null;
 
     // Same dark navy as every other embed; status is conveyed by the ✅/⚠️
     // in the fields, not by the stripe color.
@@ -51,9 +42,6 @@ module.exports = {
         { name: 'Persistent Data', value: dataWritable ? `✅ Writable\n\`${DATA_DIR}\`` : '❌ Not writable', inline: true },
         { name: 'Rotation', value: rotation.ok ? '✅ Synchronized' : `⚠️ ${rotation.reason || 'Not posted'}`, inline: true },
         { name: 'Schedulers', value: '✅ Started', inline: true }
-      )
-      .addFields(
-        { name: 'Mid Cap Vote', value: !midcap ? '➖ Not configured' : midcap.ok ? '✅ Synchronized' : `⚠️ ${midcap.reason || 'Not posted'}`, inline: true }
       )
       .setTimestamp();
     sendLog(client, startupEmbed).catch(() => {});

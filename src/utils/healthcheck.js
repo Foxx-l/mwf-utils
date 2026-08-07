@@ -22,10 +22,8 @@
  *      commands), plus an informational note about configured tags and any
  *      tag that has no matching role.
  *   6. Optional Team Rep feature: channel + role + hierarchy.
- *   7. Optional Mid Cap vote: the match it points at, and whether that map has
- *      mid caps configured.
- *   8. Rotation diagnostics.
- *   9. Stale cache self-heal: drop any Lineup/Server/Rotation cache entry
+ *   7. Rotation diagnostics.
+ *   8. Stale cache self-heal: drop any Lineup/Server/Rotation cache entry
  *      whose referenced Discord message no longer exists, and report how
  *      many entries were cleared (info-level, not a failure).
  */
@@ -42,8 +40,6 @@ const { monthHeader, MAP_CYCLE, warsawDateParts, validateState } = require('./ro
 const { FACTIONS } = require('../config/factions');
 const { HEALTHCHECK_ENV_VARS: REQUIRED_ENV_VARS } = require('../config/constants');
 const { loadTags } = require('./tagStore');
-const { getMidCaps } = require('../config/midCaps');
-const { getMatch } = require('../handlers/interactions/midCapHandler');
 
 const CHANNEL_CHECKS = [
   { envVar: 'FACTION_CHANNEL',        label: 'Faction',        needsManage: false, multiple: false },
@@ -54,7 +50,6 @@ const CHANNEL_CHECKS = [
   { envVar: 'ADMIN_LOG_CHANNEL',      label: 'Admin Logs',     needsManage: true,  multiple: false, optional: true },
   { envVar: 'TEAM_REP_CHANNEL',       label: 'Team Rep',       needsManage: false, multiple: false, optional: true },
   { envVar: 'TAG_CHANNEL',            label: 'Clan Tags',      needsManage: false, multiple: false, optional: true },
-  { envVar: 'MIDCAP_CHANNEL',         label: 'Mid Cap Vote',   needsManage: false, multiple: false, optional: true },
 ];
 
 function permName(flag) {
@@ -378,31 +373,7 @@ async function runHealthcheck(client, guildId) {
     }
   }
 
-  // 7. Mid Cap vote: report the match the poll is pointing at, and flag a map
-  //    that has no mid caps configured (voting is closed until it does).
-  if (process.env.MIDCAP_CHANNEL) {
-    const match = getMatch();
-    if (!match) {
-      notes.push('mid cap vote: no upcoming match in the rotation — use Sync Map Rotation');
-    } else {
-      const caps = getMidCaps(match.map);
-      if (!caps) {
-        issues.push({
-          kind: 'midcap-map',
-          label: 'mid cap vote',
-          detail: `no mid caps configured for "${match.map}"`,
-          hint: 'add the map to src/config/midCaps.js (or fix its spelling in the rotation)',
-        });
-        total++;
-      } else {
-        total++;
-        passed++;
-        notes.push(`mid cap vote: ${match.map} on ${match.date}${match.live ? ' (live now)' : ''} · ${caps.length} options`);
-      }
-    }
-  }
-
-  // 8. Rotation diagnostics (admin-only healthcheck output).
+  // 7. Rotation diagnostics (admin-only healthcheck output).
   if (process.env.MAP_ROTATION_CHANNEL) {
     const rotationState = loadRotationState(process.env.MAP_ROTATION_CHANNEL);
     if (rotationState) {
@@ -419,7 +390,7 @@ async function runHealthcheck(client, guildId) {
     }
   }
 
-  // 9. Stale cache self-heal (silent; reported as a note, not a failure)
+  // 8. Stale cache self-heal (silent; reported as a note, not a failure)
   try {
     const cleared = await healStaleCache(client);
     if (cleared > 0) {

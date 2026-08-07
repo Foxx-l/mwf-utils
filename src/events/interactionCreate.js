@@ -64,10 +64,6 @@ const {
 } = require('../handlers/interactions/rotationHandler');
 const { handleAdminPostAllMissing } = require('../handlers/interactions/postAllHandler');
 const {
-  handleMidCapVote,
-  handleAdminPostMidCap,
-} = require('../handlers/interactions/midCapHandler');
-const {
   handleTeamRepApprove,
   handleTeamRepReject,
 } = require('../handlers/interactions/teamrepHandler');
@@ -186,7 +182,6 @@ const SELECT_ROUTES = [
   { id: 'admin_panel_select', value: 'refresh',
     run: async i => { await i.deferUpdate(); return refreshPanelMessage(i); } },
   { id: 'admin_panel_select', value: 'postall',     track: 'Post All Missing', run: handleAdminPostAllMissing },
-  { id: 'admin_panel_select', value: 'midcap',      track: 'Post Mid Cap Vote', run: handleAdminPostMidCap },
   { id: 'admin_panel_select', value: 'healthcheck', run: handleAdminHealthcheck },
   { id: 'admin_panel_select', value: 'clearlogs',   run: handleAdminClearLogsConfirm },
 ];
@@ -197,8 +192,6 @@ const BUTTON_ROUTES = [
   { prefix: 'lineup_editserver:', run: handleLineupEditServerButton },
   { prefix: 'faction_',
     run: i => handleFactionSelection(i, i.customId.slice('faction_'.length)) },
-  { prefix: 'midcap_vote:',
-    run: i => handleMidCapVote(i, i.customId.slice('midcap_vote:'.length)) },
 
   // Team Rep approval queue (admins decide yes/no on each request)
   { prefix: 'teamrep_approve:', admin: true, run: handleTeamRepApprove },

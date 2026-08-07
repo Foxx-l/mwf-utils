@@ -16,8 +16,6 @@ const {
 } = require('../../utils/lineupStore');
 const { loadRotationMsgId, loadRotationState, rotationHistoryCount } = require('../../utils/rotationStore');
 const { monthHeader }                     = require('../../utils/rotationState');
-const { loadCapMessage }                  = require('../../utils/midCapStore');
-const { EMBED_TITLE: MIDCAP_TITLE, getMatch } = require('../../handlers/interactions/midCapHandler');
 const { COLORS }                          = require('../../config/theme');
 const { loadLastAction }                 = require('../../utils/lastActionStore');
 const { getNextResetTime }               = require('../../utils/scheduler');
@@ -180,29 +178,6 @@ async function probeRotation(client) {
   return { ...locator, state, historyCount: rotationHistoryCount(ch) };
 }
 
-async function probeMidCap(client) {
-  const channelId = process.env.MIDCAP_CHANNEL;
-  if (!channelId) return null;
-  const stored = loadCapMessage();
-  const locator = stored?.channelId === channelId
-    ? await messageLocator(client, channelId, stored.messageId)
-    : null;
-  const found = locator ?? await (async () => {
-    try {
-      const channel = await client.channels.fetch(channelId);
-      const messages = await channel.messages.fetch({ limit: 50 });
-      const match = messages.find(m =>
-        m.author.id === client.user.id && m.embeds.some(e => e.title === MIDCAP_TITLE));
-      return match ? { channelId, messageId: match.id } : null;
-    } catch (_) {
-      return null;
-    }
-  })();
-  if (!found) return null;
-  const match = getMatch();
-  return { ...found, map: match?.map ?? null, live: Boolean(match?.live) };
-}
-
 async function probeNodes(client) {
   const channels = (process.env.NODES_CHANNELS || '')
     .split(',').map(s => s.trim()).filter(Boolean);
@@ -232,17 +207,16 @@ async function probeNodes(client) {
  * missing (e.g. "Post all missing").
  */
 async function probePanelState(client) {
-  const [fac, l1, l2, s1, s2, rot, nodes, midcap] = await Promise.all([
+  const [fac, l1, l2, s1, s2, rot, nodes] = await Promise.all([
     probeFaction(client),
     probeLineup(client, 'S1'),
     probeLineup(client, 'S2'),
     probeServer(client, 'S1'),
     probeServer(client, 'S2'),
     probeRotation(client),
-    probeNodes(client),
-    probeMidCap(client)
+    probeNodes(client)
   ]);
-  return { faction: fac, lineupS1: l1, lineupS2: l2, serverS1: s1, serverS2: s2, rotation: rot, nodes, midcap };
+  return { faction: fac, lineupS1: l1, lineupS2: l2, serverS1: s1, serverS2: s2, rotation: rot, nodes };
 }
 
 // ── Description rows ─────────────────────────────────────────────────────────
@@ -277,14 +251,6 @@ function rotationRow(locator, guildId) {
     : 'state recovering';
   const history = locator.historyCount ? ` • ${locator.historyCount} undo` : '';
   return `🗺️ **Map Rotation**   ${OK}${bestSuffix(guildId, locator, ch)}   _${window}${history}_`;
-}
-
-function midCapRow(locator, guildId) {
-  const ch = process.env.MIDCAP_CHANNEL;
-  if (!ch) return null; // feature not configured — keep the panel clean
-  if (!locator) return `🎯 **Mid Cap Vote**   ${NO}${channelSuffix(guildId, ch)}`;
-  const map = locator.map ? `   _${locator.live ? 'live · ' : ''}${locator.map}_` : '   _no scheduled match_';
-  return `🎯 **Mid Cap Vote**   ${OK}${bestSuffix(guildId, locator, ch)}${map}`;
 }
 
 function nodesRow({ total, hits }, guildId) {
@@ -433,11 +399,6 @@ function panelMenu() {
           .setDescription('Publish default embeds for every 🔴 section (Server, Rotation, Nodes).')
           .setEmoji('📮'),
         new StringSelectMenuOptionBuilder()
-          .setValue('midcap')
-          .setLabel('Post / Refresh Mid Cap Vote')
-          .setDescription('Publish or update the mid cap vote for the next match.')
-          .setEmoji('🎯'),
-        new StringSelectMenuOptionBuilder()
           .setValue('healthcheck')
           .setLabel('Healthcheck')
           .setDescription('Verify env, channel perms, roles, and cached message IDs.')
@@ -465,7 +426,7 @@ function buildFooter() {
 
 async function buildPanelPayload(client, guildId) {
   const state = await probePanelState(client);
-  const { faction: fac, lineupS1: l1, lineupS2: l2, serverS1: s1, serverS2: s2, rotation: rot, nodes, midcap } = state;
+  const { faction: fac, lineupS1: l1, lineupS2: l2, serverS1: s1, serverS2: s2, rotation: rot, nodes } = state;
 
   const missingEnv = listMissingEnv();
   const nextReset  = getNextResetTime();
@@ -475,9 +436,8 @@ async function buildPanelPayload(client, guildId) {
     serverPairRow('📋 **Lineup**', l1, l2, guildId, 'LINEUP_CHANNEL'),
     serverPairRow('🖥️ **Server Details**', s1, s2, guildId, 'SERVER_DETAILS_CHANNEL'),
     rotationRow(rot, guildId),
-    nodesRow(nodes, guildId),
-    midCapRow(midcap, guildId)
-  ].filter(Boolean);
+    nodesRow(nodes, guildId)
+  ];
   if (nextReset) {
     rows.push(`⏰ **Auto-Reset**   <t:${nextReset}:R>`);
   }
