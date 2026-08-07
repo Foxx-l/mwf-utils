@@ -1,9 +1,64 @@
-const fs = require('fs');
-const path = require('path');
 const logger = require('../../utils/logger');
+const { EmbedBuilder } = require('discord.js');
 
-// Team Rep automation: listens for messages in the TEAM_REP_CHANNEL and assigns
-// TEAM_REP_ROLE_ID to the message author. Designed to be lightweight and safe.
+const MAX_RETRIES = Number(process.env.TEAM_REP_MAX_RETRIES) || 3;
+const BACKOFF_BASE_MS = Number(process.env.TEAM_REP_BACKOFF_BASE_MS) || 500;
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function tryAddRoleWithRetry(member, roleId) {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await member.roles.add(roleId);
+      return { success: true };
+    } catch (err) {
+      const msg = String(err?.message || '').toLowerCase();
+      const code = err?.code || err?.status || err?.httpStatus;
+
+      const isPermission = code === 50013 || /missing permissions/i.test(msg);
+      const isNotFound = /unknown role|unknown member|unknown user/i.test(msg) || code === 10011;
+      const isRateLimitOrServer = /rate limit|retry after|timeout/i.test(msg) || (typeof code === 'number' && code >= 500);
+
+      if (isPermission || isNotFound) {
+        // Fatal: configuration or permission problem — don't retry
+        return { success: false, fatal: true, error: err };
+      }
+
+      if (attempt === MAX_RETRIES) {
+        return { success: false, error: err };
+      }
+
+      // Transient: wait and retry
+      const delay = BACKOFF_BASE_MS * Math.pow(2, attempt);
+      logger.debug(`teamRep: transient error adding role (attempt ${attempt + 1}), retrying in ${delay}ms: ${err.message}`);
+      await sleep(delay);
+    }
+  }
+  return { success: false, error: new Error('exhausted retries') };
+}
+
+async function assignTeamRep(message, member, roleId) {
+  if (!message || !message.guild) return { success: false, fatal: true, reason: 'no_guild' };
+
+  const guild = message.guild;
+
+  const targetRole = guild.roles?.cache?.get ? guild.roles.cache.get(roleId) : null;
+  if (!targetRole) return { success: false, fatal: true, reason: 'missing_role' };
+
+  // Bot role hierarchy check
+  const botMember = await guild.members.fetch(message.client.user.id).catch(() => null);
+  if (botMember && botMember.roles?.highest && typeof botMember.roles.highest.position === 'number') {
+    const botPos = botMember.roles.highest.position;
+    const targetPos = targetRole.position ?? 0;
+    if (botPos <= targetPos) {
+      return { success: false, fatal: true, reason: 'role_hierarchy' };
+    }
+  }
+
+  return await tryAddRoleWithRetry(member, roleId);
+}
 
 module.exports = {
   name: 'messageCreate',
@@ -22,26 +77,52 @@ module.exports = {
       if (!member) return;
 
       if (member.roles.cache.has(roleId)) {
-        // Already has role — react with info and skip
         await message.react('ℹ️').catch(() => {});
         return;
       }
 
-      await member.roles.add(roleId);
-      await message.react('✅').catch(() => {});
-      // Log to admin channel if configured
-      const adminLog = process.env.ADMIN_LOG_CHANNEL;
-      if (adminLog) {
-        const sendLog = require('../handlers/interactions/shared').sendLog;
-        const { EmbedBuilder } = require('discord.js');
-        const embed = new EmbedBuilder()
-          .setTitle('Team Rep Role Assigned')
-          .setDescription(`<@${member.id}> was given the Team Rep role.`)
-          .setTimestamp();
-        sendLog(message.client, embed).catch(() => {});
+      const res = await assignTeamRep(message, member, roleId);
+
+      if (res.success) {
+        await message.react('✅').catch(() => {});
+
+        const adminLog = process.env.ADMIN_LOG_CHANNEL;
+        if (adminLog) {
+          const { sendLog } = require('../handlers/interactions/shared');
+          const embed = new EmbedBuilder()
+            .setTitle('Team Rep Role Assigned')
+            .setDescription(`<@${member.id}> was given the Team Rep role.`)
+            .setTimestamp();
+          sendLog(message.client, embed).catch(() => {});
+        }
+        return;
       }
+
+      // Failure paths
+      if (res.fatal) {
+        await message.react('❌').catch(() => {});
+
+        // Log a helpful admin message
+        const adminLog = process.env.ADMIN_LOG_CHANNEL;
+        if (adminLog) {
+          const { sendLog } = require('../handlers/interactions/shared');
+          const embed = new EmbedBuilder()
+            .setTitle('Team Rep Assignment Failed')
+            .setDescription(`Could not assign Team Rep role to <@${member.id}>. Reason: ${res.reason || res.error?.message || 'unknown'}`)
+            .setTimestamp();
+          sendLog(message.client, embed).catch(() => {});
+        }
+        return;
+      }
+
+      // Non-fatal failure after retries
+      await message.react('❌').catch(() => {});
+      logger.warn(`teamRep: failed to assign role to ${member.id}: ${res.error?.message}`);
+
     } catch (err) {
       logger.warn(`teamRep handler failed: ${err.message}`);
     }
-  }
+  },
+  // Exported for testing
+  assignTeamRep,
 };
