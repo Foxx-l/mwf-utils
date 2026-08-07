@@ -17,6 +17,9 @@ Items are grouped by priority and complexity.
 - `/edit lineup` — edit caption of the last lineup embed in-place
 - `/edit server` — edit server name/password of the last server details embed in-place
 - Channel restrictions for `/lineup` and `/server` commands via env vars
+- Team Rep Role Automation — users can post in the configured request channel to receive the Team Rep role (implemented in `src/events/messageCreate.teamrep.js`).
+  - Required env vars: `TEAM_REP_CHANNEL`, `TEAM_REP_ROLE_ID`
+  - Optional tuning env vars: `TEAM_REP_COOLDOWN_MS`, `TEAM_REP_MAX_RETRIES`, `TEAM_REP_BACKOFF_BASE_MS`
 
 ---
 
@@ -41,24 +44,7 @@ to the format `[TAG] Username`.
 
 ---
 
-### 2. Team Rep Role Automation
-**Priority:** High  
-**Channel:** `#request-team-rep-role`
-
-Players post in the request channel to identify themselves as a team representative.
-The bot automatically assigns the configured `Team Rep` role.
-
-**Details:**
-- Bot listens for new messages in the designated channel (`TEAM_REP_CHANNEL` in `.env`)
-- Assigns the `TEAM_REP_ROLE_ID` role to the message author
-- Reacts with ✅ on success
-- Logs the role assignment to the admin log channel
-- If the user already has the role, bot skips and reacts with ℹ️
-- Admins can manually assign/remove the role via `/teamrep add @user` and `/teamrep remove @user`
-
----
-
-### 3. Squad Signup System
+### 2. Squad Signup System
 **Priority:** Medium  
 **Complexity:** High
 
