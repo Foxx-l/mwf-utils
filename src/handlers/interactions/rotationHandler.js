@@ -1,32 +1,41 @@
-/**
- * rotationHandler.js — Handles Map Rotation post and edit interactions.
- *
- * Rotation is posted as a Discord embed.
- * Raw event lines are persisted in /tmp/ for round-trip editing.
- */
+/** Map Rotation interactions backed by canonical, versioned rotation state. */
 
 const {
   EmbedBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  ActionRowBuilder
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require('discord.js');
 const logger = require('../../utils/logger');
+const { COLORS } = require('../../config/theme');
 const { createErrorEmbed, createSuccessEmbed } = require('../../utils/embeds');
 const { sendLog } = require('./shared');
 const { THUMBNAIL_URL } = require('../../config/constants');
 const {
   saveRotationRaw,
-  loadRotationRaw,
   saveRotationMsgId,
-  loadRotationMsgId
+  loadRotationMsgId,
+  saveRotationState,
+  loadRotationState,
+  restorePreviousRotationState,
+  rotationHistoryCount,
 } = require('../../utils/rotationStore');
 const {
-  advanceRotationData,
-  bootstrapRotationData,
-  shouldAdvanceNow
-} = require('../../utils/rotationCycle');
+  createInitialState,
+  stateToEmbedData,
+  stateToEditableData,
+  buildEditedState,
+  summarizeStateChanges,
+  advanceState,
+  catchUpState,
+  alignStateToCurrentMonth,
+  validateState,
+  recoverStateFromEmbed,
+  warsawToUnix,
+} = require('../../utils/rotationState');
 const {
   storePendingEdit,
   buildPreviewButtons,
@@ -35,224 +44,261 @@ const {
 } = require('../../utils/pendingEdits');
 
 const PENDING_KIND = 'rotation';
-
-// ── Helpers ───────────────────────────────────────────────────────────
+let rotationOperationInProgress = false;
 
 function getMapRotationChannelId() {
   return process.env.MAP_ROTATION_CHANNEL || null;
 }
 
-function getDefaultRotationData() {
-  const now        = new Date();
-  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const m1 = now.getMonth();
-  const m2 = (m1 + 1) % 12;
-  const y1 = now.getFullYear();
-  const y2 = m2 === 0 ? y1 + 1 : y1;
-  return {
-    month1Header: `${monthNames[m1]} ${y1}`,
-    month1Events: '— No events scheduled —',
-    month2Header: `${monthNames[m2]} ${y2}`,
-    month2Events: '— No events scheduled —'
+function buildRotationEmbed(state) {
+  const data = stateToEmbedData(state); // validates field limits/state
+  const now = Math.floor(Date.now() / 1000);
+  const allEvents = state.months.flatMap(month => month.events.map(event => {
+    const [year, month, day] = event.date.split('-').map(Number);
+    return { ...event, unix: warsawToUnix(year, month - 1, day, event.time) };
+  })).sort((a, b) => a.unix - b.unix);
+  const next = allEvents.find(event => event.unix >= now);
+
+  const renderMonth = month => {
+    if (!month.events.length) return 'No matches scheduled for this month.';
+    return month.events.map(event => {
+      const [year, monthNumber, day] = event.date.split('-').map(Number);
+      const unix = warsawToUnix(year, monthNumber - 1, day, event.time);
+      const icon = unix < now ? '✅' : next?.unix === unix ? '➡️' : '•';
+      return `${icon} <t:${unix}:d> · <t:${unix}:t> — **${event.map}**`;
+    }).join('\n');
   };
-}
 
-/**
- * Returns the UTC offset for Europe/Warsaw at the given date, in hours.
- * Uses Intl to correctly handle DST transitions.
- */
-function getWarsawOffsetHours(date) {
-  const utcMs    = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
-  const warsawMs = new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Warsaw' })).getTime();
-  return Math.round((warsawMs - utcMs) / 3_600_000);
-}
-
-/**
- * Converts "<t:unix:f> - **MapName**" lines back to "DD/MM/YYYY - MapName"
- * (using Europe/Warsaw for the date). Lines that don't match are passed through.
- */
-function reverseParseEventLines(text) {
-  if (!text) return '';
-  return text.split('\n').map(line => {
-    const m = line.trim().match(/^<t:(\d+):[a-zA-Z]>\s*-\s*\*\*\s*(.+?)\s*\*\*\s*$/);
-    if (!m) return line;
-    const [, unixStr, rawMap] = m;
-    const mapName = rawMap.replace(/`/g, '').trim();
-    const d = new Date(parseInt(unixStr, 10) * 1000);
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Europe/Warsaw',
-      day:   '2-digit',
-      month: '2-digit',
-      year:  'numeric'
-    }).formatToParts(d);
-    const dd   = parts.find(p => p.type === 'day').value;
-    const mm   = parts.find(p => p.type === 'month').value;
-    const yyyy = parts.find(p => p.type === 'year').value;
-    return `${dd}/${mm}/${yyyy} - ${mapName}`;
-  }).join('\n');
-}
-
-/**
- * Converts raw embed text to the DD/MM/YYYY editable form used by the modal.
- */
-function toEditableForm(data) {
-  if (!data) return null;
-  return {
-    month1Header: data.month1Header,
-    month1Events: reverseParseEventLines(data.month1Events),
-    month2Header: data.month2Header,
-    month2Events: reverseParseEventLines(data.month2Events)
-  };
-}
-
-/**
- * Fetches the live rotation message from Discord, preferring the stored messageId
- * but falling back to a channel scan when that message is missing or isn't a rotation
- * embed. Updates the stored messageId when a newer rotation is found.
- * Returns the refreshed raw data, or null if nothing usable was found.
- */
-async function syncRotationFromChannel(client, channelId, storedMsgId) {
-  try {
-    const ch = await client.channels.fetch(channelId);
-    if (!ch) return null;
-
-    let msg = storedMsgId
-      ? await ch.messages.fetch(storedMsgId).catch(() => null)
-      : null;
-
-    const isRotation = (m) => m?.embeds?.[0]?.author?.name === 'Map Rotation';
-
-    if (!isRotation(msg)) {
-      msg = await findRotationMessage(ch);
-    }
-    if (!isRotation(msg)) return null;
-
-    const fields = msg.embeds[0].fields ?? [];
-    if (fields.length < 2) return null;
-
-    const data = {
-      month1Header: fields[0].name,
-      month1Events: fields[0].value,
-      month2Header: fields[1].name,
-      month2Events: fields[1].value
-    };
-
-    if (msg.id !== storedMsgId) {
-      saveRotationMsgId(channelId, msg.id);
-    }
-    saveRotationRaw(msg.id, data);
-    return data;
-  } catch (_) {
-    return null;
-  }
-}
-
-/**
- * Fires-and-forgets a sync so the next Edit Rotation click sees fresh data.
- */
-function refreshRotationRawInBackground(client, channelId, messageId) {
-  syncRotationFromChannel(client, channelId, messageId).catch(() => {});
-}
-
-/**
- * Runs on bot startup so the rotation cache is warm before any user clicks Edit.
- */
-async function warmRotationCache(client) {
-  const channelId = getMapRotationChannelId();
-  if (!channelId) return;
-  const storedMsgId = loadRotationMsgId(channelId);
-  await syncRotationFromChannel(client, channelId, storedMsgId);
-}
-
-/**
- * Converts lines matching "DD/MM/YYYY - MapName" to Discord timestamps.
- * Event time is assumed to be 20:00 Europe/Warsaw.
- */
-function parseEventLines(text) {
-  return text.split('\n').map(line => {
-    const match = line.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})\s*-\s*(.+)$/);
-    if (!match) return line.trim();
-    const [, dd, mm, yyyy, mapName] = match;
-
-    const probe       = new Date(`${yyyy}-${mm}-${dd}T20:00:00Z`);
-    const offsetHours = getWarsawOffsetHours(probe);
-    const utcHour     = 20 - offsetHours;
-    const unix        = Math.floor(
-      new Date(`${yyyy}-${mm}-${dd}T${String(utcHour).padStart(2, '0')}:00:00Z`).getTime() / 1000
-    );
-
-    return `<t:${unix}:f> - **${mapName.trim()}**`;
-  }).join('\n');
-}
-
-/**
- * Builds the Map Rotation embed.
- * Uses setAuthor so the logo appears on the left next to the title.
- */
-function buildRotationEmbed(data) {
-  return new EmbedBuilder()
-    .setColor(0x011327)
+  const embed = new EmbedBuilder()
+    .setColor(COLORS.primary)
     .setAuthor({ name: 'Map Rotation', iconURL: THUMBNAIL_URL })
     .addFields(
-      { name: data.month1Header, value: data.month1Events || '— No events scheduled —' },
-      { name: data.month2Header, value: data.month2Events || '— No events scheduled —' }
-    );
+      { name: data.month1Header.toUpperCase(), value: renderMonth(state.months[0]) },
+      { name: data.month2Header.toUpperCase(), value: renderMonth(state.months[1]) }
+    )
+    .setFooter({ text: 'Times are shown in your local timezone' });
+  if (next) embed.setDescription(`**Next event:** **${next.map}** · <t:${next.unix}:R>`);
+  return embed;
 }
 
-/**
- * Scans the last 50 messages in a channel to find an existing rotation embed
- * (used as fallback when the message ID is not stored in /tmp/).
- */
-async function findRotationMessage(channel) {
+function isRotationMessage(message, botUserId = message?.client?.user?.id) {
+  return Boolean(botUserId)
+    && message?.author?.id === botUserId
+    && message.embeds?.[0]?.author?.name === 'Map Rotation';
+}
+
+async function findRotationMessages(channel, limit = 100) {
+  const messages = await channel.messages.fetch({ limit });
+  return messages.filter(message => isRotationMessage(message, channel.client.user.id));
+}
+
+function validStoredState(channelId) {
+  const state = loadRotationState(channelId);
+  if (!state) return null;
   try {
-    const messages = await channel.messages.fetch({ limit: 50 });
-    return messages.find(m =>
-      m.author.bot &&
-      m.embeds.length > 0 &&
-      m.embeds[0].author?.name === 'Map Rotation'
-    ) ?? null;
-  } catch (_) {
+    validateState(state);
+    return state;
+  } catch (err) {
+    logger.warn(`Ignoring invalid rotation state for channel ${channelId}: ${err.message}`);
     return null;
   }
 }
 
-// ── Map Rotation Modal Submit ─────────────────────────────────────────────────
-//
-// To avoid accidental overwrites, modal submit does NOT save directly.
-// Instead, the parsed payload is stashed in-memory keyed by a nonce and an
-// ephemeral preview embed + Apply / Cancel buttons is shown. The actual
-// message edit runs only when Apply is clicked.
+function persistState(channelId, state) {
+  const data = stateToEmbedData(state);
+  saveRotationState(channelId, state);
+  if (state.messageId) {
+    saveRotationMsgId(channelId, state.messageId);
+    // Keep legacy files populated for safe rollback to an older bot release.
+    saveRotationRaw(state.messageId, data);
+  }
+}
+
+async function loadOrRecoverRotation(client, channelId) {
+  const channel = await client.channels.fetch(channelId).catch(() => null);
+  if (!channel?.isTextBased()) return { channel: null, message: null, state: null };
+
+  let state = validStoredState(channelId);
+  const candidateId = state?.messageId || loadRotationMsgId(channelId);
+  let message = candidateId
+    ? await channel.messages.fetch(candidateId).catch(() => null)
+    : null;
+  if (!isRotationMessage(message, client.user.id)) message = null;
+
+  if (!message) {
+    const matches = await findRotationMessages(channel).catch(() => null);
+    message = matches?.first() || null;
+  }
+
+  if (!state && message) {
+    state = recoverStateFromEmbed(message.embeds[0], message.id);
+  }
+  if (state && message && state.messageId !== message.id) {
+    state = { ...state, messageId: message.id, updatedAt: new Date().toISOString() };
+  }
+  if (state) persistState(channelId, state);
+  return { channel, message, state };
+}
+
+/**
+ * Edits an existing rotation message when possible and posts only when none
+ * exists. Obsolete duplicates are removed only after the new state is live.
+ */
+async function upsertRotation(client, state, { removeDuplicates = true } = {}) {
+  const channelId = getMapRotationChannelId();
+  if (!channelId) return { ok: false, reason: 'MAP_ROTATION_CHANNEL not set' };
+
+  const recovered = await loadOrRecoverRotation(client, channelId);
+  if (!recovered.channel) return { ok: false, reason: `Rotation channel <#${channelId}> is unreachable` };
+  let message = recovered.message;
+  const embed = buildRotationEmbed(state); // validates before changing Discord
+
+  if (message) {
+    await message.edit({ embeds: [embed], content: null });
+  } else {
+    message = await recovered.channel.send({ embeds: [embed] });
+  }
+
+  const persisted = { ...state, messageId: message.id, updatedAt: new Date().toISOString() };
+  persistState(channelId, persisted);
+
+  if (removeDuplicates) {
+    const matches = await findRotationMessages(recovered.channel).catch(() => null);
+    if (matches) {
+      for (const duplicate of matches.values()) {
+        if (duplicate.id !== message.id) {
+          await duplicate.delete().catch(err =>
+            logger.warn(`Could not remove duplicate rotation ${duplicate.id}: ${err.message}`)
+          );
+        }
+      }
+    }
+  }
+
+  return { ok: true, state: persisted, channel: recovered.channel, message };
+}
+
+async function withRotationLock(operation) {
+  if (rotationOperationInProgress) return { ok: false, busy: true, reason: 'Another rotation update is already in progress.' };
+  rotationOperationInProgress = true;
+  try {
+    return await operation();
+  } finally {
+    rotationOperationInProgress = false;
+  }
+}
+
+async function warmRotationCache(client) {
+  const channelId = getMapRotationChannelId();
+  if (!channelId) return { ok: false, reason: 'no channel' };
+  const recovered = await loadOrRecoverRotation(client, channelId);
+
+  // Legacy embeds are recovered at revision 1. If such an embed starts in a
+  // future month, repair the migration immediately. Later intentional manual
+  // advances have higher revisions and are not silently undone on restart.
+  if (recovered.state?.revision === 1) {
+    const alignment = alignStateToCurrentMonth(recovered.state);
+    if (alignment.reset) {
+      const fixed = await upsertRotation(client, alignment.state);
+      if (fixed.ok) logger.info('Realigned legacy rotation to the current Warsaw month.');
+      return fixed;
+    }
+  }
+
+  return { ok: Boolean(recovered.state), ...recovered };
+}
+
+async function ensureRotationPosted(client) {
+  return withRotationLock(async () => {
+    const channelId = getMapRotationChannelId();
+    if (!channelId) return { ok: false, reason: 'MAP_ROTATION_CHANNEL not set' };
+    const recovered = await loadOrRecoverRotation(client, channelId);
+    const alignment = recovered.state
+      ? alignStateToCurrentMonth(recovered.state)
+      : { state: createInitialState(), reset: false, advances: 0 };
+    const result = await upsertRotation(client, alignment.state);
+    return { ...result, reset: alignment.reset, advances: alignment.advances };
+  });
+}
+
+function addModalInput(modal, customId, label, style, value, maxLength) {
+  modal.addComponents(new ActionRowBuilder().addComponents(
+    new TextInputBuilder()
+      .setCustomId(customId)
+      .setLabel(label)
+      .setStyle(style)
+      .setValue(value)
+      .setMaxLength(maxLength)
+      .setRequired(true)
+  ));
+}
+
+async function handleAdminEditRotation(interaction) {
+  const channelId = getMapRotationChannelId();
+  if (!channelId) {
+    return interaction.reply({ embeds: [createErrorEmbed('Config Error', 'MAP_ROTATION_CHANNEL is not set in .env.')], flags: 64 });
+  }
+
+  const state = validStoredState(channelId);
+  if (!state) {
+    await interaction.deferReply({ flags: 64 });
+    const recovered = await loadOrRecoverRotation(interaction.client, channelId);
+    if (!recovered.state) {
+      return interaction.editReply({ embeds: [createErrorEmbed('Not Found', 'No Map Rotation message was found. Post one first.')] });
+    }
+    return interaction.editReply({
+      embeds: [createSuccessEmbed('Rotation recovered', 'Click **Edit Map Rotation** again to open the editor.')],
+    });
+  }
+
+  const editable = stateToEditableData(state);
+  const modal = new ModalBuilder()
+    .setCustomId(`rotation_edit:${channelId}:${state.messageId || '0'}:${state.revision}`)
+    .setTitle('Edit Map Rotation');
+  addModalInput(modal, 'month1_header', 'Month 1 (e.g. August 2026)', TextInputStyle.Short, editable.month1Header, 50);
+  addModalInput(modal, 'month1_events', 'Month 1 Events (DD/MM/YYYY - Map)', TextInputStyle.Paragraph, editable.month1Events, 1000);
+  addModalInput(modal, 'month2_header', 'Month 2 (e.g. September 2026)', TextInputStyle.Short, editable.month2Header, 50);
+  addModalInput(modal, 'month2_events', 'Month 2 Events (DD/MM/YYYY - Map)', TextInputStyle.Paragraph, editable.month2Events, 1000);
+  addModalInput(modal, 'event_time', 'Event time (24-hour HH:MM)', TextInputStyle.Short, editable.eventTime, 5);
+  return interaction.showModal(modal);
+}
 
 async function handleRotationModalSubmit(interaction) {
   await interaction.deferReply({ flags: 64 });
+  const [, channelId, , revisionText] = interaction.customId.split(':');
+  const expectedRevision = Number(revisionText);
+  const current = validStoredState(channelId);
+  if (!current || current.revision !== expectedRevision) {
+    return interaction.editReply({
+      embeds: [createErrorEmbed('Rotation changed', 'Another update was saved after you opened the editor. Re-open Edit Rotation and try again.')],
+    });
+  }
 
-  const parts     = interaction.customId.split(':');
-  const channelId = parts[1];
-  const messageId = parts[2];
-
-  const month1Header = interaction.fields.getTextInputValue('month1_header');
-  const month1Raw    = interaction.fields.getTextInputValue('month1_events');
-  const month2Header = interaction.fields.getTextInputValue('month2_header');
-  const month2Raw    = interaction.fields.getTextInputValue('month2_events');
-
-  const month1Events = parseEventLines(month1Raw);
-  const month2Events = parseEventLines(month2Raw);
-
-  const data = { month1Header, month1Events, month2Header, month2Events };
-  const rawInputs = { month1Header, month1Events: month1Raw, month2Header, month2Events: month2Raw };
-  const previewEmbed = buildRotationEmbed(data);
+  const input = {
+    month1Header: interaction.fields.getTextInputValue('month1_header'),
+    month1Events: interaction.fields.getTextInputValue('month1_events'),
+    month2Header: interaction.fields.getTextInputValue('month2_header'),
+    month2Events: interaction.fields.getTextInputValue('month2_events'),
+    eventTime: interaction.fields.getTextInputValue('event_time'),
+  };
+  let candidate;
+  try {
+    candidate = buildEditedState(input, current);
+  } catch (err) {
+    return interaction.editReply({ embeds: [createErrorEmbed('Invalid rotation data', err.message)] });
+  }
 
   const nonce = storePendingEdit(PENDING_KIND, {
     channelId,
-    messageId,
-    data,
-    rawInputs,
+    expectedRevision,
+    state: candidate,
     ownerId: interaction.user.id,
   });
-
+  const preview = buildRotationEmbed(candidate)
+    .addFields({ name: 'Change Summary', value: summarizeStateChanges(current, candidate).slice(0, 1024) });
   return interaction.editReply({
-    content: '👀 **Preview** — check the dates/maps below, then click **Apply** to publish or **Cancel** to discard.',
-    embeds: [previewEmbed],
+    content: '👀 **Preview** — validate the changes, then Apply or Cancel.',
+    embeds: [preview],
     components: [buildPreviewButtons(PENDING_KIND, nonce)],
   });
 }
@@ -261,304 +307,183 @@ async function handleRotationApplyButton(interaction) {
   const pending = await beginApplyInteraction(interaction, PENDING_KIND, 'Edit Map Rotation');
   if (!pending) return false;
 
-  const { channelId, messageId, data, rawInputs } = pending;
-  const embed = buildRotationEmbed(data);
-
-  await interaction.update({
-    content: '⏳ Applying rotation edit…',
-    embeds: [embed],
-    components: [],
+  const result = await withRotationLock(async () => {
+    const current = validStoredState(pending.channelId);
+    if (!current || current.revision !== pending.expectedRevision) {
+      await interaction.update({
+        content: '',
+        embeds: [createErrorEmbed('Rotation changed', 'Another update won the race. Re-open Edit Rotation so you do not overwrite newer data.')],
+        components: [],
+      });
+      return { ok: false, conflict: true };
+    }
+    await interaction.update({ content: '⏳ Applying rotation edit…', embeds: [buildRotationEmbed(pending.state)], components: [] });
+    return upsertRotation(interaction.client, pending.state);
   });
 
-  try {
-    const ch  = await interaction.client.channels.fetch(channelId);
-    const msg = await ch.messages.fetch(messageId);
-
-    await msg.edit({ embeds: [embed], content: null });
-    saveRotationRaw(messageId, rawInputs);
-
-    logger.info(`${interaction.user.tag} updated Map Rotation in #${ch.name}`);
-
-    await sendLog(interaction.client, new EmbedBuilder()
-      .setColor(0x011327)
-      .setTitle('Map Rotation Edited')
-      .addFields(
-        { name: 'Admin',   value: `<@${interaction.user.id}>`, inline: true },
-        { name: 'Channel', value: `<#${channelId}>`,           inline: true }
-      )
-      .setTimestamp()
-    );
-
-    return interaction.editReply({
-      content: '',
-      embeds: [createSuccessEmbed('Map Rotation Updated', 'The rotation has been updated successfully.')],
-      components: [],
-    });
-  } catch (err) {
-    logger.error('Failed to edit Map Rotation:', err);
-    await interaction.editReply({
-      content: '',
-      embeds: [createErrorEmbed('Error', 'Could not edit the message. It may be too old or I lack permissions.')],
-      components: [],
-    });
+  if (result.busy) {
+    await interaction.update({ content: '', embeds: [createErrorEmbed('Busy', result.reason)], components: [] });
     return false;
   }
+  if (!result.ok) {
+    if (!result.conflict) {
+      await interaction.editReply({ content: '', embeds: [createErrorEmbed('Update failed', result.reason || 'Unknown error')], components: [] });
+    }
+    return false;
+  }
+
+  await sendLog(interaction.client, new EmbedBuilder()
+    .setColor(COLORS.primary)
+    .setTitle('Map Rotation Edited')
+    .addFields(
+      { name: 'Admin', value: `<@${interaction.user.id}>`, inline: true },
+      { name: 'Revision', value: `${result.state.revision}`, inline: true }
+    )
+    .setTimestamp());
+  await interaction.editReply({ content: '', embeds: [createSuccessEmbed('Map Rotation Updated', `Saved revision **${result.state.revision}**.`)], components: [] });
+  return true;
 }
 
 async function handleRotationCancelButton(interaction) {
   return handleCancelInteraction(interaction, PENDING_KIND, '❎ Rotation edit discarded.');
 }
 
-// ── Admin: Post Map Rotation ──────────────────────────────────────────────────
-
 async function handleAdminPostRotation(interaction) {
   await interaction.deferReply({ flags: 64 });
-
-  const channelId = getMapRotationChannelId();
-  if (!channelId) {
-    return interaction.editReply({
-      embeds: [createErrorEmbed('Config Error', 'MAP_ROTATION_CHANNEL is not set in .env.')]
-    });
-  }
-
-  const ch = await interaction.client.channels.fetch(channelId).catch(() => null);
-  if (!ch) {
-    return interaction.editReply({
-      embeds: [createErrorEmbed('Channel Not Found', `Could not find channel <#${channelId}>. Check MAP_ROTATION_CHANNEL in .env.`)]
-    });
-  }
-
-  const data  = getDefaultRotationData();
-  const embed = buildRotationEmbed(data);
-
-  const prevMsgId = loadRotationMsgId(channelId);
-  if (prevMsgId) {
-    const prevMsg = await ch.messages.fetch(prevMsgId).catch(() => null);
-    if (prevMsg) await prevMsg.delete().catch(() => {});
-  }
-
-  const msg   = await ch.send({ embeds: [embed] });
-
-  saveRotationMsgId(channelId, msg.id);
-  saveRotationRaw(msg.id, data);
-
-  logger.info(`${interaction.user.tag} posted Map Rotation to #${ch.name}`);
-
+  const result = await ensureRotationPosted(interaction.client);
+  if (!result.ok) return interaction.editReply({ embeds: [createErrorEmbed(result.busy ? 'Busy' : 'Post failed', result.reason)] });
   await sendLog(interaction.client, new EmbedBuilder()
-    .setColor(0x011327)
-    .setTitle('Map Rotation Posted')
+    .setColor(COLORS.primary)
+    .setTitle('Map Rotation Upserted')
     .addFields(
-      { name: 'Admin',   value: `<@${interaction.user.id}>`, inline: true },
-      { name: 'Channel', value: `<#${channelId}>`,           inline: true }
+      { name: 'Admin', value: `<@${interaction.user.id}>`, inline: true },
+      { name: 'Channel', value: `${result.channel}`, inline: true },
+      { name: 'Revision', value: `${result.state.revision}`, inline: true }
     )
-    .setTimestamp()
-  );
+    .setTimestamp());
+  return interaction.editReply({ embeds: [createSuccessEmbed('Map Rotation Ready', `Rotation is live in ${result.channel} without duplicates.`)] });
+}
 
-  return interaction.editReply({
-    embeds: [createSuccessEmbed('Map Rotation Posted', `Posted to <#${channelId}>!\nUse **Edit Rotation** to fill in the events.`)]
+async function advanceRotationNow(client) {
+  return withRotationLock(async () => {
+    const channelId = getMapRotationChannelId();
+    if (!channelId) return { ok: false, reason: 'MAP_ROTATION_CHANNEL not set' };
+    const recovered = await loadOrRecoverRotation(client, channelId);
+    if (!recovered.state) {
+      const posted = await upsertRotation(client, createInitialState());
+      return { ...posted, action: 'bootstrap', advances: 0 };
+    }
+    const next = advanceState(recovered.state);
+    const posted = await upsertRotation(client, next);
+    return { ...posted, action: 'advance', advances: 1 };
   });
 }
 
-// ── Admin: Edit Map Rotation (panel button) ───────────────────────────────────
-
-async function handleAdminEditRotation(interaction) {
-  const channelId = getMapRotationChannelId();
-  if (!channelId) {
-    return interaction.reply({
-      embeds: [createErrorEmbed('Config Error', 'MAP_ROTATION_CHANNEL is not set in .env.')],
-      flags: 64
-    });
-  }
-
-  let storedMsgId = loadRotationMsgId(channelId);
-
-  if (!storedMsgId) {
-    // Try to locate an existing rotation message; if found, persist its id and fall
-    // through to the modal flow so admins can edit immediately instead of the
-    // two-step "click again" dance.
-    await interaction.deferReply({ flags: 64 });
-    const ch = await interaction.client.channels.fetch(channelId).catch(() => null);
-    if (ch) {
-      const found = await findRotationMessage(ch).catch(() => null);
-      if (found) {
-        storedMsgId = found.id;
-        saveRotationMsgId(channelId, found.id);
-        const fields = found.embeds[0]?.fields ?? [];
-        if (fields.length >= 2) {
-          saveRotationRaw(found.id, {
-            month1Header: fields[0].name,
-            month1Events: fields[0].value,
-            month2Header: fields[1].name,
-            month2Events: fields[1].value
-          });
-        }
-      }
-    }
-
-    if (!storedMsgId) {
-      return interaction.editReply({
-        content: '❌ No Map Rotation message found. Post one first using **Post Rotation**.',
-      });
-    }
-
-    // If we found a storedMsgId we intentionally do NOT return here — fall
-    // through so the modal is built and shown immediately.
-  }
-
-  const data = toEditableForm(loadRotationRaw(storedMsgId)) ?? getDefaultRotationData();
-  refreshRotationRawInBackground(interaction.client, channelId, storedMsgId);
-
-  const modal = new ModalBuilder()
-    .setCustomId(`rotation_edit:${channelId}:${storedMsgId}`)
-    .setTitle('Edit Map Rotation');
-
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId('month1_header')
-        .setLabel('Month 1 (e.g. April 2026)')
-        .setStyle(TextInputStyle.Short)
-        .setValue(data.month1Header)
-        .setMaxLength(50)
-        .setRequired(true)
-    ),
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId('month1_events')
-        .setLabel('Month 1 Events (DD/MM/YYYY - MapName)')
-        .setStyle(TextInputStyle.Paragraph)
-        .setValue(data.month1Events)
-        .setMaxLength(1000)
-        .setRequired(true)
-    ),
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId('month2_header')
-        .setLabel('Month 2 (e.g. May 2026)')
-        .setStyle(TextInputStyle.Short)
-        .setValue(data.month2Header)
-        .setMaxLength(50)
-        .setRequired(true)
-    ),
-    new ActionRowBuilder().addComponents(
-      new TextInputBuilder()
-        .setCustomId('month2_events')
-        .setLabel('Month 2 Events (DD/MM/YYYY - MapName)')
-        .setStyle(TextInputStyle.Paragraph)
-        .setValue(data.month2Events)
-        .setMaxLength(1000)
-        .setRequired(true)
-    )
-  );
-
-  await interaction.showModal(modal);
-}
-
-// ── Admin: Advance Rotation (manual + scheduler) ──────────────────────────────
-
-/**
- * Core routine that advances the live Map Rotation embed by one month.
- * - If no embed exists, posts a fresh bootstrap.
- * - If an embed exists, computes the next rolling window (month2 → month1,
- *   new month generated below) and edits the message in place.
- *
- * Returns { ok, action, data, channelId, messageId } on success, or
- * { ok: false, reason } on failure.
- */
-async function advanceRotationNow(client) {
-  const channelId = getMapRotationChannelId();
-  if (!channelId) return { ok: false, reason: 'MAP_ROTATION_CHANNEL not set' };
-
-  const ch = await client.channels.fetch(channelId).catch(() => null);
-  if (!ch) return { ok: false, reason: `Rotation channel <#${channelId}> unreachable` };
-
-  const storedMsgId = loadRotationMsgId(channelId);
-  const live = await syncRotationFromChannel(client, channelId, storedMsgId);
-
-  if (!live) {
-    const fresh = bootstrapRotationData();
-    const msg   = await ch.send({ embeds: [buildRotationEmbed(fresh)] });
-    saveRotationMsgId(channelId, msg.id);
-    saveRotationRaw(msg.id, fresh);
-    return { ok: true, action: 'bootstrap', data: fresh, channelId, messageId: msg.id };
-  }
-
-  const next = advanceRotationData(live);
-  const msgId = loadRotationMsgId(channelId);
-  try {
-    const msg = await ch.messages.fetch(msgId);
-    await msg.edit({ embeds: [buildRotationEmbed(next)], content: null });
-    saveRotationRaw(msgId, next);
-    return { ok: true, action: 'advance', data: next, channelId, messageId: msgId };
-  } catch (err) {
-    logger.error(`advanceRotationNow failed to edit message ${msgId}: ${err.message}`);
-    return { ok: false, reason: 'Could not edit rotation message (deleted or missing permissions).' };
-  }
-}
-
-/**
- * Scheduler-friendly wrapper: advances only when month1 events are entirely
- * in the past. Safe to invoke on a daily cron.
- */
 async function maybeAutoAdvanceRotation(client) {
-  const channelId = getMapRotationChannelId();
-  if (!channelId) return { skipped: 'no channel' };
-
-  const storedMsgId = loadRotationMsgId(channelId);
-  const live = storedMsgId
-    ? await syncRotationFromChannel(client, channelId, storedMsgId)
-    : null;
-
-  if (!live) return { skipped: 'no live rotation' };
-  if (!shouldAdvanceNow(live)) return { skipped: 'month1 not fully elapsed' };
-
-  const result = await advanceRotationNow(client);
-  if (result.ok) {
-    logger.info(`Auto-advanced rotation to ${result.data.month1Header} / ${result.data.month2Header}`);
+  return withRotationLock(async () => {
+    const channelId = getMapRotationChannelId();
+    if (!channelId) return { skipped: 'no channel' };
+    const recovered = await loadOrRecoverRotation(client, channelId);
+    if (!recovered.state) return { skipped: 'no live rotation' };
+    const caughtUp = catchUpState(recovered.state);
+    if (!caughtUp.advances) return { skipped: 'already on the current Warsaw month' };
+    if (caughtUp.stillBehind) return { ok: false, reason: 'Rotation is more than 24 months behind; manual review required.' };
+    const result = await upsertRotation(client, caughtUp.state);
+    if (!result.ok) return result;
+    logger.info(`Auto-advanced rotation by ${caughtUp.advances} month(s)`);
     await sendLog(client, new EmbedBuilder()
-      .setColor(0x011327)
+      .setColor(COLORS.primary)
       .setTitle('⏩ Rotation Auto-Advanced')
-      .setDescription(`Rolled forward to **${result.data.month1Header}** / **${result.data.month2Header}**.`)
-      .setTimestamp()
-    );
-  }
-  return result;
+      .setDescription(`Caught up **${caughtUp.advances}** month(s) to the current Warsaw calendar month.`)
+      .setTimestamp());
+    return { ...result, advances: caughtUp.advances };
+  });
+}
+
+async function handleAdminAdvanceConfirm(interaction) {
+  const channelId = getMapRotationChannelId();
+  const state = channelId ? validStoredState(channelId) : null;
+  const window = state ? stateToEmbedData(state) : null;
+  return interaction.reply({
+    embeds: [new EmbedBuilder()
+      .setColor(COLORS.warning)
+      .setTitle('Confirm Rotation Advance')
+      .setDescription(window
+        ? `Advance **${window.month1Header} / ${window.month2Header}** forward by one month?`
+        : 'No stored rotation exists; this will create the current window.')],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('rotation_advance_confirm').setLabel('Confirm Advance').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('rotation_action_cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
+    )],
+    flags: 64,
+  });
+}
+
+async function handleAdminResetConfirm(interaction) {
+  return interaction.reply({
+    embeds: [new EmbedBuilder().setColor(COLORS.warning).setTitle('Reset Rotation?')
+      .setDescription('This rebuilds the current and next Warsaw months from the map cycle. The current state is kept in Undo history.')],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('rotation_reset_confirm').setLabel('Reset to Current Month').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId('rotation_action_cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
+    )],
+    flags: 64,
+  });
+}
+
+async function handleRotationActionCancel(interaction) {
+  return interaction.update({ content: '❎ Rotation action cancelled.', embeds: [], components: [] });
+}
+
+async function handleAdminResetRotation(interaction) {
+  await interaction.update({ content: '⏳ Resetting rotation…', embeds: [], components: [] });
+  const result = await withRotationLock(async () => {
+    const channelId = getMapRotationChannelId();
+    const current = channelId ? validStoredState(channelId) : null;
+    const fresh = createInitialState();
+    if (current) {
+      fresh.revision = current.revision + 1;
+      fresh.messageId = current.messageId;
+    }
+    return upsertRotation(interaction.client, fresh);
+  });
+  if (!result.ok) return interaction.editReply({ embeds: [createErrorEmbed('RESET_FAILED', result.reason)], components: [] });
+  return interaction.editReply({ content: '', embeds: [createSuccessEmbed('Rotation Reset', 'Restored the current Warsaw two-month window. You can Undo this change.')], components: [] });
+}
+
+async function handleAdminUndoRotation(interaction) {
+  await interaction.deferReply({ flags: 64 });
+  const result = await withRotationLock(async () => {
+    const channelId = getMapRotationChannelId();
+    if (!channelId) return { ok: false, reason: 'MAP_ROTATION_CHANNEL not set' };
+    const previous = restorePreviousRotationState(channelId);
+    if (!previous) return { ok: false, reason: 'No rotation history is available.' };
+    return upsertRotation(interaction.client, previous);
+  });
+  if (!result.ok) return interaction.editReply({ embeds: [createErrorEmbed('UNDO_FAILED', result.reason)] });
+  return interaction.editReply({ embeds: [createSuccessEmbed('Rotation Restored', `Restored the previous state. ${rotationHistoryCount(getMapRotationChannelId())} older state(s) remain.`)] });
 }
 
 async function handleAdminAdvanceRotation(interaction) {
-  await interaction.deferReply({ flags: 64 });
-
-  const result = await advanceRotationNow(interaction.client);
-  if (!result.ok) {
-    return interaction.editReply({ embeds: [createErrorEmbed('Advance Failed', result.reason)] });
+  if (interaction.isButton?.()) {
+    await interaction.update({ content: '⏳ Advancing rotation…', embeds: [], components: [] });
+  } else {
+    await interaction.deferReply({ flags: 64 });
   }
-
-  logger.info(`${interaction.user.tag} advanced Map Rotation (${result.action})`);
-
+  const result = await advanceRotationNow(interaction.client);
+  if (!result.ok) return interaction.editReply({ embeds: [createErrorEmbed(result.busy ? 'Busy' : 'Advance failed', result.reason)] });
   await sendLog(interaction.client, new EmbedBuilder()
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setTitle(result.action === 'bootstrap' ? 'Map Rotation Bootstrapped' : 'Map Rotation Advanced')
     .addFields(
-      { name: 'Admin',  value: `<@${interaction.user.id}>`,                 inline: true },
-      { name: 'Window', value: `${result.data.month1Header} → ${result.data.month2Header}`, inline: true }
+      { name: 'Admin', value: `<@${interaction.user.id}>`, inline: true },
+      { name: 'Revision', value: `${result.state.revision}`, inline: true }
     )
-    .setTimestamp()
-  );
-
-  const lines = [
-    `**${result.data.month1Header}**`,
-    result.data.month1Events || '— No events scheduled —',
-    '',
-    `**${result.data.month2Header}**`,
-    result.data.month2Events || '— No events scheduled —'
-  ].join('\n').slice(0, 4000);
-
-  return interaction.editReply({
-    embeds: [createSuccessEmbed(
-      result.action === 'bootstrap' ? 'Rotation Bootstrapped' : 'Rotation Advanced',
-      lines
-    )]
-  });
+    .setTimestamp());
+  return interaction.editReply({ embeds: [createSuccessEmbed(
+    result.action === 'bootstrap' ? 'Rotation Bootstrapped' : 'Rotation Advanced',
+    `Now showing **${stateToEmbedData(result.state).month1Header}** and **${stateToEmbedData(result.state).month2Header}**.`
+  )] });
 }
 
 module.exports = {
@@ -567,7 +492,15 @@ module.exports = {
   handleRotationCancelButton,
   handleAdminPostRotation,
   handleAdminEditRotation,
+  handleAdminAdvanceConfirm,
   handleAdminAdvanceRotation,
+  handleAdminResetConfirm,
+  handleAdminResetRotation,
+  handleAdminUndoRotation,
+  handleRotationActionCancel,
   maybeAutoAdvanceRotation,
-  warmRotationCache
+  warmRotationCache,
+  ensureRotationPosted,
+  upsertRotation,
+  buildRotationEmbed,
 };

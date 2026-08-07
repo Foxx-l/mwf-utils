@@ -1,0 +1,82 @@
+diff --git a/src/events/messageCreate.teamrep.js b/src/events/messageCreate.teamrep.js
+index 73a051a..0b0a315 100644
+--- a/src/events/messageCreate.teamrep.js
++++ b/src/events/messageCreate.teamrep.js
+@@ -3,6 +3,7 @@ const { EmbedBuilder } = require('discord.js');
+ 
+ const MAX_RETRIES = Number(process.env.TEAM_REP_MAX_RETRIES) || 3;
+ const BACKOFF_BASE_MS = Number(process.env.TEAM_REP_BACKOFF_BASE_MS) || 500;
++const TEAM_REP_LOG_COLOR = 0x071321;
+ 
+ function sleep(ms) {
+   return new Promise(resolve => setTimeout(resolve, ms));
+@@ -60,19 +61,6 @@ async function assignTeamRep(message, member, roleId) {
+   return await tryAddRoleWithRetry(member, roleId);
+ }
+ 
+-function formatPriorRoles(member, guild, maxRoles = 10) {
+-  if (!member || !member.roles || !member.roles.cache) return 'None';
+-  const roles = member.roles.cache
+-    .filter(r => r.id !== guild.id) // exclude @everyone
+-    .map(r => r.name)
+-    .slice(0, maxRoles);
+-  if (roles.length === 0) return 'None';
+-  const joined = roles.join(', ');
+-  // Truncate to keep embed sizes safe
+-  if (joined.length > 800) return joined.slice(0, 797) + '...';
+-  return joined;
+-}
+-
+ module.exports = {
+   name: 'messageCreate',
+   async execute(message) {
+@@ -97,7 +85,6 @@ module.exports = {
+       const res = await assignTeamRep(message, member, roleId);
+ 
+       const targetRole = message.guild.roles.cache.get(roleId);
+-      const priorRoles = formatPriorRoles(member, message.guild, 10);
+ 
+       if (res.success) {
+         await message.react('✅').catch(() => {});
+@@ -107,12 +94,11 @@ module.exports = {
+           const { sendLog } = require('../handlers/interactions/shared');
+           const embed = new EmbedBuilder()
+             .setTitle('Team Rep Role Assigned')
+-            .setColor(0x2ecc71)
++            .setColor(TEAM_REP_LOG_COLOR)
+             .addFields(
+               { name: 'Requester', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
+               { name: 'Channel', value: `${message.channel.toString()} (${message.channel.id})`, inline: true },
+               { name: 'Role', value: `${targetRole ? `${targetRole.name} (${targetRole.id})` : roleId}`, inline: true },
+-              { name: 'Prior roles', value: priorRoles, inline: false },
+             )
+             .setTimestamp();
+           sendLog(message.client, embed).catch(() => {});
+@@ -130,12 +116,11 @@ module.exports = {
+           const { sendLog } = require('../handlers/interactions/shared');
+           const embed = new EmbedBuilder()
+             .setTitle('Team Rep Assignment Failed')
+-            .setColor(0xe74c3c)
++            .setColor(TEAM_REP_LOG_COLOR)
+             .addFields(
+               { name: 'Requester', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
+               { name: 'Channel', value: `${message.channel.toString()} (${message.channel.id})`, inline: true },
+               { name: 'Role', value: targetRole ? `${targetRole.name} (${targetRole.id})` : 'Missing', inline: true },
+-              { name: 'Prior roles', value: priorRoles, inline: false },
+               { name: 'Reason', value: `${res.reason || res.error?.message || 'unknown'}`, inline: false },
+               { name: 'Attempts', value: `${res.attempts || 0}`, inline: true },
+             )
+@@ -155,12 +140,11 @@ module.exports = {
+         const { sendLog } = require('../handlers/interactions/shared');
+         const embed = new EmbedBuilder()
+           .setTitle('Team Rep Assignment Failed')
+-          .setColor(0xe74c3c)
++          .setColor(TEAM_REP_LOG_COLOR)
+           .addFields(
+             { name: 'Requester', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
+             { name: 'Channel', value: `${message.channel.toString()} (${message.channel.id})`, inline: true },
+             { name: 'Role', value: targetRole ? `${targetRole.name} (${targetRole.id})` : 'Missing', inline: true },
+-            { name: 'Prior roles', value: priorRoles, inline: false },
+             { name: 'Error', value: `${res.error?.message || 'unknown'}`.slice(0, 1000), inline: false },
+             { name: 'Attempts', value: `${res.attempts || 0}`, inline: true },
+           )

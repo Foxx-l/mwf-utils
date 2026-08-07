@@ -1,8 +1,20 @@
 const logger = require('../utils/logger');
+const { COLORS } = require('../config/theme');
 const { EmbedBuilder } = require('discord.js');
 
-const MAX_RETRIES = Number(process.env.TEAM_REP_MAX_RETRIES) || 3;
-const BACKOFF_BASE_MS = Number(process.env.TEAM_REP_BACKOFF_BASE_MS) || 500;
+function nonNegativeEnvNumber(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || String(raw).trim() === '') return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+const MAX_RETRIES = Math.floor(nonNegativeEnvNumber('TEAM_REP_MAX_RETRIES', 3));
+const BACKOFF_BASE_MS = nonNegativeEnvNumber('TEAM_REP_BACKOFF_BASE_MS', 500);
+const TEAM_REP_COOLDOWN_MS = nonNegativeEnvNumber('TEAM_REP_COOLDOWN_MS', 60_000);
+const TEAM_REP_LOG_COLOR = COLORS.primary;
+const requestInProgress = new Set();
+const lastRequestAt = new Map();
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -17,16 +29,19 @@ async function tryAddRoleWithRetry(member, roleId) {
       const msg = String(err?.message || '').toLowerCase();
       const code = err?.code || err?.status || err?.httpStatus;
 
+      const httpStatus = err?.status || err?.httpStatus;
       const isPermission = code === 50013 || /missing permissions/i.test(msg);
       const isNotFound = /unknown role|unknown member|unknown user/i.test(msg) || code === 10011;
-      const isRateLimitOrServer = /rate limit|retry after|timeout/i.test(msg) || (typeof code === 'number' && code >= 500);
+      const isTransient = /rate limit|retry after|timeout|econnreset|etimedout|network/i.test(msg)
+        || httpStatus === 429
+        || (typeof httpStatus === 'number' && httpStatus >= 500)
+        || (typeof code === 'number' && code >= 500 && code < 600);
 
       if (isPermission || isNotFound) {
-        // Fatal: configuration or permission problem — don't retry
         return { success: false, fatal: true, error: err, attempts: attempt + 1 };
       }
 
-      if (attempt === MAX_RETRIES) {
+      if (!isTransient || attempt === MAX_RETRIES) {
         return { success: false, error: err, attempts: attempt + 1 };
       }
 
@@ -60,19 +75,6 @@ async function assignTeamRep(message, member, roleId) {
   return await tryAddRoleWithRetry(member, roleId);
 }
 
-function formatPriorRoles(member, guild, maxRoles = 10) {
-  if (!member || !member.roles || !member.roles.cache) return 'None';
-  const roles = member.roles.cache
-    .filter(r => r.id !== guild.id) // exclude @everyone
-    .map(r => r.name)
-    .slice(0, maxRoles);
-  if (roles.length === 0) return 'None';
-  const joined = roles.join(', ');
-  // Truncate to keep embed sizes safe
-  if (joined.length > 800) return joined.slice(0, 797) + '...';
-  return joined;
-}
-
 module.exports = {
   name: 'messageCreate',
   async execute(message) {
@@ -94,10 +96,35 @@ module.exports = {
         return;
       }
 
-      const res = await assignTeamRep(message, member, roleId);
+      const userId = member.id;
+      if (requestInProgress.has(userId)) {
+        await message.react('⏳').catch(() => {});
+        return;
+      }
+
+      const now = Date.now();
+      const previousRequest = lastRequestAt.get(userId) ?? 0;
+      if (TEAM_REP_COOLDOWN_MS > 0 && now - previousRequest < TEAM_REP_COOLDOWN_MS) {
+        await message.react('⏳').catch(() => {});
+        return;
+      }
+
+      requestInProgress.add(userId);
+      lastRequestAt.set(userId, now);
+      if (TEAM_REP_COOLDOWN_MS > 0) {
+        const cleanup = setTimeout(() => {
+          if (lastRequestAt.get(userId) === now) lastRequestAt.delete(userId);
+        }, TEAM_REP_COOLDOWN_MS);
+        cleanup.unref?.();
+      }
+      let res;
+      try {
+        res = await assignTeamRep(message, member, roleId);
+      } finally {
+        requestInProgress.delete(userId);
+      }
 
       const targetRole = message.guild.roles.cache.get(roleId);
-      const priorRoles = formatPriorRoles(member, message.guild, 10);
 
       if (res.success) {
         await message.react('✅').catch(() => {});
@@ -107,12 +134,11 @@ module.exports = {
           const { sendLog } = require('../handlers/interactions/shared');
           const embed = new EmbedBuilder()
             .setTitle('Team Rep Role Assigned')
-            .setColor(0x2ecc71)
+            .setColor(TEAM_REP_LOG_COLOR)
             .addFields(
               { name: 'Requester', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
-              { name: 'Channel', value: `${message.channel.toString()} (${message.channel.id})`, inline: true },
-              { name: 'Role', value: `${targetRole ? `${targetRole.name} (${targetRole.id})` : roleId}`, inline: true },
-              { name: 'Prior roles', value: priorRoles, inline: false },
+              { name: 'Channel', value: message.channel.toString(), inline: true },
+              { name: 'Role', value: targetRole?.name || 'Unknown', inline: true },
             )
             .setTimestamp();
           sendLog(message.client, embed).catch(() => {});
@@ -130,12 +156,11 @@ module.exports = {
           const { sendLog } = require('../handlers/interactions/shared');
           const embed = new EmbedBuilder()
             .setTitle('Team Rep Assignment Failed')
-            .setColor(0xe74c3c)
+            .setColor(TEAM_REP_LOG_COLOR)
             .addFields(
               { name: 'Requester', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
-              { name: 'Channel', value: `${message.channel.toString()} (${message.channel.id})`, inline: true },
-              { name: 'Role', value: targetRole ? `${targetRole.name} (${targetRole.id})` : 'Missing', inline: true },
-              { name: 'Prior roles', value: priorRoles, inline: false },
+              { name: 'Channel', value: message.channel.toString(), inline: true },
+              { name: 'Role', value: targetRole?.name || 'Missing', inline: true },
               { name: 'Reason', value: `${res.reason || res.error?.message || 'unknown'}`, inline: false },
               { name: 'Attempts', value: `${res.attempts || 0}`, inline: true },
             )
@@ -155,12 +180,11 @@ module.exports = {
         const { sendLog } = require('../handlers/interactions/shared');
         const embed = new EmbedBuilder()
           .setTitle('Team Rep Assignment Failed')
-          .setColor(0xe74c3c)
+          .setColor(TEAM_REP_LOG_COLOR)
           .addFields(
             { name: 'Requester', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
-            { name: 'Channel', value: `${message.channel.toString()} (${message.channel.id})`, inline: true },
-            { name: 'Role', value: targetRole ? `${targetRole.name} (${targetRole.id})` : 'Missing', inline: true },
-            { name: 'Prior roles', value: priorRoles, inline: false },
+            { name: 'Channel', value: message.channel.toString(), inline: true },
+            { name: 'Role', value: targetRole?.name || 'Missing', inline: true },
             { name: 'Error', value: `${res.error?.message || 'unknown'}`.slice(0, 1000), inline: false },
             { name: 'Attempts', value: `${res.attempts || 0}`, inline: true },
           )

@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { EmbedBuilder } = require('discord.js');
 const logger = require('./logger');
+const { COLORS } = require('../config/theme');
 const { getAllFactionRoleIds } = require('../config/factions');
 const { maybeAutoAdvanceRotation } = require('../handlers/interactions/rotationHandler');
 
@@ -12,17 +13,21 @@ const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
  * Configurable via RESET_DAY (0=Sun, 3=Wed) and RESET_HOUR in .env
  */
 function startScheduler(client) {
-  const day  = process.env.RESET_DAY  ?? '3';   // 3 = Wednesday
-  const hour = process.env.RESET_HOUR ?? '22';  // 22:00
+  const day = Number.parseInt(process.env.RESET_DAY ?? '3', 10);
+  const hour = Number.parseInt(process.env.RESET_HOUR ?? '22', 10);
+
+  if (!Number.isInteger(day) || day < 0 || day > 6 || !Number.isInteger(hour) || hour < 0 || hour > 23) {
+    logger.error(`Invalid reset schedule: RESET_DAY=${process.env.RESET_DAY ?? '3'}, RESET_HOUR=${process.env.RESET_HOUR ?? '22'}. Scheduler not started.`);
+    return;
+  }
 
   const expression = `0 ${hour} * * ${day}`;
-
   if (!cron.validate(expression)) {
     logger.error(`Invalid cron expression: ${expression}. Scheduler not started.`);
     return;
   }
 
-  const dayName = DAY_NAMES[parseInt(day)] ?? `day ${day}`;
+  const dayName = DAY_NAMES[day];
 
   cron.schedule(expression, () => resetFactionRoles(client), {
     timezone: 'Europe/Warsaw'
@@ -48,6 +53,8 @@ function startRotationScheduler(client) {
       const result = await maybeAutoAdvanceRotation(client);
       if (result?.skipped) {
         logger.info(`Rotation auto-advance skipped — ${result.skipped}`);
+      } else if (result?.ok === false) {
+        logger.error(`Rotation auto-advance did not run: ${result.reason || 'unknown reason'}`);
       }
     } catch (err) {
       logger.error(`Rotation auto-advance failed: ${err.message}`);
@@ -117,7 +124,7 @@ async function resetFactionRoles(client) {
       if (channel?.isTextBased()) {
         const embed = new EmbedBuilder()
           .setTitle('🔄 Weekly Faction Reset')
-          .setColor(0x011327)
+          .setColor(COLORS.primary)
           .setDescription('Scheduled weekly role reset has been executed.')
           .addFields(
             { name: '✅ Roles Removed', value: `${removed} member(s)`, inline: true },

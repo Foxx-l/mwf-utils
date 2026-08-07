@@ -141,7 +141,27 @@ async function handleFactionSelection(interaction, factionKey) {
       }
     }
 
-    await member.roles.add(selectedRoleId);
+    try {
+      await member.roles.add(selectedRoleId, 'Faction selection');
+    } catch (err) {
+      logger.warn(`Could not add faction role to ${interaction.user.tag}: ${err.message}`);
+      let rollbackMessage = '';
+      if (rolesToRemove.length) {
+        try {
+          await member.roles.add(rolesToRemove, 'Restoring roles after failed faction switch');
+          rollbackMessage = ' Your previous faction role was restored.';
+        } catch (rollbackErr) {
+          logger.error(`Could not restore previous faction role(s) for ${interaction.user.tag}:`, rollbackErr);
+          rollbackMessage = ' I also could not restore your previous role; please contact an admin.';
+        }
+      }
+      return interaction.editReply({
+        embeds: [createErrorEmbed(
+          'Could not select faction',
+          `I could not add the selected faction role.${rollbackMessage} Ask an admin to check role permissions and hierarchy.`
+        )],
+      });
+    }
     // Only burn the cooldown on a successful swap.
     if (cdSec > 0) lastSwapAtMs.set(userId, Date.now());
     logger.info(`${interaction.user.tag} joined ${factionLabel}`);

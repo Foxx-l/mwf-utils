@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require('discord.js');
 const logger = require('./utils/logger');
+const { COLORS } = require('./config/theme');
 const { REQUIRED_ENV_VARS } = require('./config/constants');
 const { sendLog } = require('./handlers/interactions/shared');
 
@@ -44,7 +45,7 @@ async function gracefulShutdown(signal) {
   logger.info(`Bot shutting down (${signal})...`);
   try {
     const embed = new EmbedBuilder()
-      .setColor(0xe67e22)
+      .setColor(COLORS.warning)
       .setTitle('🛑 Bot Offline')
       .setDescription(`Signal: \`${signal}\` · Restart / maintenance in progress.`)
       .setTimestamp();

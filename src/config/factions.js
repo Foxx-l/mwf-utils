@@ -10,6 +10,7 @@
  */
 
 const { ButtonStyle } = require('discord.js');
+const { COLORS } = require('./theme');
 
 const FACTIONS = Object.freeze({
   allies_s1: {
@@ -18,7 +19,7 @@ const FACTIONS = Object.freeze({
     label:   'Allies - S1',
     emoji:   'ALLIES',
     fallbackEmoji: '🔵',
-    color:   0x3b82f6,
+    color:   COLORS.allies,
     style:   ButtonStyle.Primary
   },
   axis_s1: {
@@ -27,7 +28,7 @@ const FACTIONS = Object.freeze({
     label:   'Axis - S1',
     emoji:   'AXIS',
     fallbackEmoji: '🔴',
-    color:   0xef4444,
+    color:   COLORS.axis,
     style:   ButtonStyle.Danger
   },
   allies_s2: {
@@ -36,7 +37,7 @@ const FACTIONS = Object.freeze({
     label:   'Allies - S2',
     emoji:   'ALLIES',
     fallbackEmoji: '🔵',
-    color:   0x3b82f6,
+    color:   COLORS.allies,
     style:   ButtonStyle.Primary
   },
   axis_s2: {
@@ -45,7 +46,7 @@ const FACTIONS = Object.freeze({
     label:   'Axis - S2',
     emoji:   'AXIS',
     fallbackEmoji: '🔴',
-    color:   0xef4444,
+    color:   COLORS.axis,
     style:   ButtonStyle.Danger
   }
 });

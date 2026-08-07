@@ -167,8 +167,8 @@ function buildMonthEvents(year, month, startMap, weekday, hour, minute) {
   if (!days.length) return { text: '— No events scheduled —', nextMap: startMap };
 
   const lines = [];
-  let cursor  = matchCycleMap(startMap) || MAP_CYCLE[0];
-  let idx     = MAP_CYCLE.indexOf(cursor);
+  const cursor = matchCycleMap(startMap) || MAP_CYCLE[0];
+  let idx = MAP_CYCLE.indexOf(cursor);
 
   for (const d of days) {
     const unix = warsawToUnix(year, month, d, hour, minute);
@@ -183,9 +183,20 @@ function buildMonthEvents(year, month, startMap, weekday, hour, minute) {
  * Generates a fresh 2-month rotation when the embed is empty. `now` defaults
  * to the current time; accept an explicit value for testability.
  */
+function warsawYearMonth(date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Warsaw',
+    year: 'numeric',
+    month: 'numeric',
+  }).formatToParts(date);
+  return {
+    year: Number(parts.find(p => p.type === 'year')?.value),
+    month: Number(parts.find(p => p.type === 'month')?.value) - 1,
+  };
+}
+
 function bootstrapRotationData(now = new Date()) {
-  const year  = now.getFullYear();
-  const month = now.getMonth();
+  const { year, month } = warsawYearMonth(now);
 
   const block1 = buildMonthEvents(year, month, MAP_CYCLE[0],
     DEFAULT_WEEKDAY, DEFAULT_HOUR, DEFAULT_MINUTE);
@@ -246,9 +257,17 @@ function advanceRotationData(data) {
 function shouldAdvanceNow(data, now = new Date()) {
   if (!data) return false;
   const events = parseEventBlock(data.month1Events);
-  if (!events.length) return false;
-  const nowSec = Math.floor(now.getTime() / 1000);
-  return events.every(e => e.unix < nowSec);
+  if (events.length) {
+    const nowSec = Math.floor(now.getTime() / 1000);
+    return events.every(e => e.unix < nowSec);
+  }
+
+  // An empty month would otherwise block auto-advance forever. Fall back to
+  // its header and advance once that Warsaw calendar month has ended.
+  const header = parseMonthHeader(data.month1Header);
+  if (!header) return false;
+  const current = warsawYearMonth(now);
+  return (header.year * 12 + header.month) < (current.year * 12 + current.month);
 }
 
 module.exports = {

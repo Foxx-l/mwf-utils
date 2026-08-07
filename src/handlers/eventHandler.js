@@ -24,5 +24,5 @@ module.exports = (client) => {
     }
   }
 
-  logger.success(`All event listeners loaded`);
+  logger.success('All event listeners loaded');
 };

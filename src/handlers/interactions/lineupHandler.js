@@ -16,6 +16,7 @@ const {
   ButtonStyle
 } = require('discord.js');
 const logger = require('../../utils/logger');
+const { COLORS } = require('../../config/theme');
 const { createErrorEmbed, createSuccessEmbed } = require('../../utils/embeds');
 const { THUMBNAIL_URL } = require('../../config/constants');
 const { sendLog, findLastBotMessage } = require('./shared');
@@ -67,7 +68,7 @@ async function handleLineupEditCapButton(interaction) {
       const msg = await ch.messages.fetch(messageId);
       currentCaption = msg.embeds[0]?.description ?? msg.embeds[0]?.footer?.text ?? currentCaption;
       saveLineupData(channelId, messageId, currentCaption, server);
-    } catch (_) {}
+    } catch (_) { /* best effort */ }
   }
 
   const serverSuffix = server ? `:${server}` : '';
@@ -113,7 +114,7 @@ async function handleLineupCaptionSubmit(interaction) {
   }
 
   const previewEmbed = new EmbedBuilder()
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setDescription(newCaption);
   if (imageUrl) previewEmbed.setImage(imageUrl);
 
@@ -213,7 +214,7 @@ async function handleLineupEditServerButton(interaction) {
       currentName  = fields.find(f => f.name.includes('Server Name'))?.value ?? currentName;
       currentPass  = fields.find(f => f.name.includes('Password'))?.value   ?? currentPass;
       saveServerData(channelId, messageId, currentName, currentPass, server);
-    } catch (_) {}
+    } catch (_) { /* best effort */ }
   }
 
   const serverSuffix = server ? `:${server}` : '';
@@ -250,7 +251,7 @@ async function handleLineupEditServerButton(interaction) {
 function buildServerDetailsEmbed(server, name, password) {
   return new EmbedBuilder()
     .setTitle(server ? `Server Details (${server})` : 'Server Details')
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setThumbnail(THUMBNAIL_URL)
     .addFields(
       { name: '\ud83d\udccc Server Name', value: name,     inline: true },
@@ -351,7 +352,7 @@ async function handleAdminPostServer(interaction, serverOverride) {
 
   const serverEmbed = new EmbedBuilder()
     .setTitle(server ? `Server Details (${server})` : 'Server Details')
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setThumbnail(THUMBNAIL_URL)
     .addFields(
       { name: '\ud83d\udccc Server Name', value: serverName,     inline: true },
@@ -371,7 +372,7 @@ async function handleAdminPostServer(interaction, serverOverride) {
   logger.info(`${interaction.user.tag} posted ${server || 'legacy'} server details to #${channel.name}`);
 
   await sendLog(interaction.client, new EmbedBuilder()
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setTitle(server ? `\ud83d\udda5\ufe0f Server Details Posted (${server})` : '\ud83d\udda5\ufe0f Server Details Posted')
     .addFields(
       { name: '\ud83d\udc64 Admin',   value: `<@${interaction.user.id}>`, inline: true },

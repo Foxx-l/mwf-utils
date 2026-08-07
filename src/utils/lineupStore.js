@@ -1,36 +1,32 @@
-/**
- * lineupStore.js
- *
- * Persists lineup caption and server details data in /app/data/
- * (Docker named volume — survives restarts).
- * Prevents the 3-second Discord modal timeout by caching data locally
- * instead of scanning channels before showing the edit modal.
- */
+/** Persists lineup captions and server details in the configured data directory. */
 
-const fs   = require('fs');
-const path = require('path');
+const fs = require('fs');
+const logger = require('./logger');
+const { dataPath } = require('./dataDir');
 
-const DATA_DIR    = '/app/data';
-const LINEUP_PATH = path.join(DATA_DIR, 'lineup_data.json');
-const SERVER_PATH = path.join(DATA_DIR, 'server_data.json');
+const LINEUP_PATH = dataPath('lineup_data.json');
+const SERVER_PATH = dataPath('server_data.json');
 
 function _read(filePath) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (_) {
+  } catch (err) {
+    if (err.code !== 'ENOENT') logger.warn(`Could not read ${filePath}: ${err.message}`);
     return {};
   }
 }
 
 function _write(filePath, data) {
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-  } catch (_) {}
+    const tempPath = `${filePath}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf8');
+    fs.renameSync(tempPath, filePath);
+    return true;
+  } catch (err) {
+    logger.warn(`Could not write ${filePath}: ${err.message}`);
+    return false;
+  }
 }
-
-// ── Lineup caption cache ─────────────────────────────────────────────────────
-// Keyed by `${channelId}:${server}` when `server` ('S1' | 'S2') is provided,
-// otherwise by plain `channelId`.
 
 function _lineupKey(channelId, server) {
   return server ? `${channelId}:${server}` : channelId;
@@ -39,7 +35,7 @@ function _lineupKey(channelId, server) {
 function saveLineupData(channelId, messageId, caption, server) {
   const store = _read(LINEUP_PATH);
   store[_lineupKey(channelId, server)] = { messageId, caption, server: server || null };
-  _write(LINEUP_PATH, store);
+  return _write(LINEUP_PATH, store);
 }
 
 function loadLineupData(channelId, server) {
@@ -51,13 +47,8 @@ function clearLineupData(channelId, server) {
   const key = _lineupKey(channelId, server);
   if (store[key] === undefined) return false;
   delete store[key];
-  _write(LINEUP_PATH, store);
-  return true;
+  return _write(LINEUP_PATH, store);
 }
-
-// ── Server details cache ──────────────────────────────────────────────────────
-// Keyed by `${channelId}:${server}` when `server` ('S1' | 'S2') is provided,
-// otherwise by plain `channelId`.
 
 function _serverKey(channelId, server) {
   return server ? `${channelId}:${server}` : channelId;
@@ -66,7 +57,7 @@ function _serverKey(channelId, server) {
 function saveServerData(channelId, messageId, serverName, serverPassword, server) {
   const store = _read(SERVER_PATH);
   store[_serverKey(channelId, server)] = { messageId, serverName, serverPassword, server: server || null };
-  _write(SERVER_PATH, store);
+  return _write(SERVER_PATH, store);
 }
 
 function loadServerData(channelId, server) {
@@ -78,8 +69,7 @@ function clearServerData(channelId, server) {
   const key = _serverKey(channelId, server);
   if (store[key] === undefined) return false;
   delete store[key];
-  _write(SERVER_PATH, store);
-  return true;
+  return _write(SERVER_PATH, store);
 }
 
 module.exports = {

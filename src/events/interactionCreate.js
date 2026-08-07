@@ -38,7 +38,12 @@ const {
   handleRotationCancelButton,
   handleAdminPostRotation,
   handleAdminEditRotation,
-  handleAdminAdvanceRotation
+  handleAdminAdvanceConfirm,
+  handleAdminAdvanceRotation,
+  handleAdminResetConfirm: handleRotationResetConfirm,
+  handleAdminResetRotation: handleRotationReset,
+  handleAdminUndoRotation,
+  handleRotationActionCancel,
 } = require('../handlers/interactions/rotationHandler');
 const { handleAdminPostAllMissing } = require('../handlers/interactions/postAllHandler');
 const {
@@ -203,20 +208,14 @@ module.exports = {
           }
 
           if (interaction.customId === 'admin_rotnodes_select') {
-            if (value === 'rotation:post') {
-              return await trackAction(
-                interaction,
-                'Post Map Rotation',
-                () => handleAdminPostRotation(interaction),
-              );
+            if (value === 'rotation:sync') {
+              return await trackAction(interaction, 'Sync Map Rotation', () => handleAdminPostRotation(interaction));
             }
             if (value === 'rotation:edit') return await handleAdminEditRotation(interaction);
-            if (value === 'rotation:advance') {
-              return await trackAction(
-                interaction,
-                'Advance Rotation',
-                () => handleAdminAdvanceRotation(interaction),
-              );
+            if (value === 'rotation:advance') return await handleAdminAdvanceConfirm(interaction);
+            if (value === 'rotation:reset') return await handleRotationResetConfirm(interaction);
+            if (value === 'rotation:undo') {
+              return await trackAction(interaction, 'Undo Rotation', () => handleAdminUndoRotation(interaction));
             }
             if (value === 'nodes:post') {
               return await trackAction(
@@ -304,6 +303,18 @@ module.exports = {
         }
         if (customId === 'admin_clearlogs_cancel')   return await handleAdminClearLogsCancel(interaction);
         if (customId === 'admin_healthcheck_autofix') return await handleAdminHealthcheckAutofix(interaction);
+      }
+
+      // ── Confirmed rotation actions ────────────────────────────────────────
+      if (['rotation_advance_confirm', 'rotation_reset_confirm', 'rotation_action_cancel'].includes(customId)) {
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+          return interaction.reply({ embeds: [createErrorEmbed('Permission Denied', 'Administrator permission is required.')], flags: 64 });
+        }
+        if (customId === 'rotation_action_cancel') return handleRotationActionCancel(interaction);
+        if (customId === 'rotation_advance_confirm') {
+          return trackAction(interaction, 'Advance Rotation', () => handleAdminAdvanceRotation(interaction));
+        }
+        return trackAction(interaction, 'Reset Rotation', () => handleRotationReset(interaction));
       }
 
       // ── Preview Apply / Cancel (per-flow namespace) ───────────────────────

@@ -10,6 +10,7 @@ const {
   ActionRowBuilder
 } = require('discord.js');
 const logger = require('../../utils/logger');
+const { COLORS } = require('../../config/theme');
 const { createErrorEmbed, createSuccessEmbed } = require('../../utils/embeds');
 const { THUMBNAIL_URL, DEFAULT_NODES } = require('../../config/constants');
 const { sendLog, findLastBotMessage } = require('./shared');
@@ -33,7 +34,7 @@ function getNodesChannelIds() {
 function buildNodesEmbed(fields) {
   return new EmbedBuilder()
     .setTitle('NODES')
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setThumbnail(THUMBNAIL_URL)
     .addFields(fields);
 }
@@ -167,7 +168,7 @@ async function handleNodesApplyButton(interaction) {
   logger.info(`${interaction.user.tag} edited NODES embed — ${edited} updated, ${failed} failed`);
 
   await sendLog(interaction.client, new EmbedBuilder()
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setTitle('📍 Nodes Embed Edited')
     .addFields(
       { name: '👤 Admin',   value: `<@${interaction.user.id}>`, inline: true },
@@ -223,7 +224,7 @@ async function handleAdminPostNodes(interaction) {
   logger.info(`${interaction.user.tag} posted NODES embed to ${posted} channel(s)`);
 
   await sendLog(interaction.client, new EmbedBuilder()
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setTitle('📍 Nodes Embed Posted')
     .addFields(
       { name: '👤 Admin',    value: `<@${interaction.user.id}>`,        inline: true },
@@ -270,7 +271,7 @@ async function handleAdminEditNodes(interaction) {
         saveNodesData(recoveredFields);
         break;
       }
-    } catch (_) {}
+    } catch (_) { /* best effort */ }
   }
 
   if (!recoveredFields) {

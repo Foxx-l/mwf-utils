@@ -13,14 +13,14 @@
 const { EmbedBuilder } = require('discord.js');
 
 const logger = require('../../utils/logger');
+const { COLORS } = require('../../config/theme');
 const { createFactionEmbed } = require('../../utils/embeds');
 const { createFactionButtons } = require('../../utils/buttons');
 const { sendLog, bulkDeleteFiltered } = require('./shared');
 const { THUMBNAIL_URL, DEFAULT_NODES } = require('../../config/constants');
 const { saveServerData } = require('../../utils/lineupStore');
 const { saveNodesData }  = require('../../utils/nodesStore');
-const { saveRotationRaw, saveRotationMsgId } = require('../../utils/rotationStore');
-const { bootstrapRotationData } = require('../../utils/rotationCycle');
+const { ensureRotationPosted } = require('./rotationHandler');
 
 const { probePanelState } = require('../../commands/admin/panel');
 
@@ -69,7 +69,7 @@ async function postServerCore(client, server) {
 
   const embed = new EmbedBuilder()
     .setTitle(server ? `Server Details (${server})` : 'Server Details')
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setThumbnail(THUMBNAIL_URL)
     .addFields(
       { name: '\ud83d\udccc Server Name', value: defaultName, inline: true },
@@ -84,28 +84,17 @@ async function postServerCore(client, server) {
 }
 
 async function postRotationCore(client) {
-  const channelId = process.env.MAP_ROTATION_CHANNEL;
-  if (!channelId) return { posted: false, reason: 'MAP_ROTATION_CHANNEL not set' };
-  const channel = await client.channels.fetch(channelId).catch(() => null);
-  if (!channel) return { posted: false, reason: 'Rotation channel unreachable' };
-
-  const data  = bootstrapRotationData();
-  const embed = new EmbedBuilder()
-    .setColor(0x011327)
-    .setAuthor({ name: 'Map Rotation', iconURL: THUMBNAIL_URL })
-    .addFields(
-      { name: data.month1Header, value: data.month1Events || '— No events scheduled —' },
-      { name: data.month2Header, value: data.month2Events || '— No events scheduled —' }
-    );
-  const msg = await channel.send({ embeds: [embed] });
-  saveRotationMsgId(channelId, msg.id);
-  saveRotationRaw(msg.id, data);
-  return { posted: true };
+  const result = await ensureRotationPosted(client);
+  return result.ok
+    ? { posted: true }
+    : { posted: false, reason: result.reason || 'Rotation upsert failed' };
 }
 
-async function postNodesCore(client) {
-  const ids = (process.env.NODES_CHANNELS || '').split(',').map(s => s.trim()).filter(Boolean);
-  if (!ids.length) return { posted: false, reason: 'NODES_CHANNELS not set' };
+async function postNodesCore(client, channelIds = null) {
+  const configuredIds = (process.env.NODES_CHANNELS || '').split(',').map(s => s.trim()).filter(Boolean);
+  const ids = channelIds ?? configuredIds;
+  if (!configuredIds.length) return { posted: false, reason: 'NODES_CHANNELS not set' };
+  if (!ids.length) return { posted: false, reason: 'No missing Nodes channels' };
 
   let ok = 0;
   let fail = 0;
@@ -114,7 +103,7 @@ async function postNodesCore(client) {
       const channel = await client.channels.fetch(channelId);
       const embed = new EmbedBuilder()
         .setTitle('NODES')
-        .setColor(0x011327)
+        .setColor(COLORS.primary)
         .setThumbnail(THUMBNAIL_URL)
         .addFields(DEFAULT_NODES);
       await channel.send({ embeds: [embed] });
@@ -162,7 +151,10 @@ async function handleAdminPostAllMissing(interaction) {
     results.push({ label: 'Map Rotation', ...r });
   }
   if (needsNodes) {
-    const r = await postNodesCore(interaction.client);
+    const configuredNodeIds = (process.env.NODES_CHANNELS || '').split(',').map(s => s.trim()).filter(Boolean);
+    const existingNodeIds = new Set((state.nodes?.hits || []).map(hit => hit.channelId));
+    const missingNodeIds = configuredNodeIds.filter(id => !existingNodeIds.has(id));
+    const r = await postNodesCore(interaction.client, missingNodeIds);
     const extra = r.total ? ` (${r.ok}/${r.total})` : '';
     results.push({ label: 'Nodes' + extra, ...r });
   }
@@ -183,7 +175,7 @@ async function handleAdminPostAllMissing(interaction) {
   logger.info(`${interaction.user.tag} ran Post All Missing — posted ${posted.length}, failed ${failed.length}, skipped ${skipped.length}`);
 
   await sendLog(interaction.client, new EmbedBuilder()
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setTitle('📮 Post All Missing')
     .addFields(
       { name: '👤 Admin',   value: `<@${interaction.user.id}>`, inline: true },
@@ -194,7 +186,7 @@ async function handleAdminPostAllMissing(interaction) {
     .setTimestamp()
   );
 
-  const color = failed.length ? 0xffcc00 : 0x00cc66;
+  const color = failed.length ? COLORS.warning : COLORS.success;
   return interaction.editReply({
     embeds: [new EmbedBuilder()
       .setColor(color)

@@ -15,9 +15,9 @@ details, map rotation, and node info, all driven from a single admin panel.
   with auto-calculated Wednesday timestamps.
 - **Server details** — post and edit server name/password for S1 and S2
   (managed from the panel).
-- **Rolling map rotation** — embed shows a 2-month window; a daily scheduler
-  auto-advances months as they pass, auto-filling Wednesdays from a fixed
-  cycle (Utah → SMDM → Omaha → Carentan → SME).
+- **Rolling map rotation** — versioned structured state renders a 2-month
+  window; a daily Warsaw-time scheduler catches up at calendar-month boundaries
+  and auto-fills Wednesdays from Utah → SMDM → Omaha → Carentan → SME.
 - **Node info** — post/edit an identical NODES embed across every channel
   listed in `NODES_CHANNELS`.
 - **Healthcheck** — validates env vars, channel permissions, and faction-role
@@ -53,14 +53,16 @@ npm run deploy         # register slash commands (once)
 npm start
 ```
 
-Note: stores (lineup, rotation, nodes, last-action) persist under `/app/data`
-in the Docker image. When running outside Docker the bot will fail to write
-to that path — create the directory (`sudo mkdir -p /app/data && sudo chown
-$USER /app/data`) or adapt the paths in `src/utils/*Store.js`.
+Stores (lineup, rotation, nodes, last-action) persist in `./data` relative to
+the bot's working directory. Set `DATA_DIR` to override this location. In the
+Docker image the working directory is `/app`, so the existing `bot_data` volume
+continues to persist `/app/data`.
 
 ## Environment variables
 
-See [`.env.example`](./.env.example) for the full list. Required:
+See [`.env.example`](./.env.example) for the full list. `BOT_TOKEN`,
+`CLIENT_ID`, `GUILD_ID`, and faction settings are required at startup; the
+remaining values enable their corresponding features.
 
 | Variable | Description |
 |---|---|
@@ -106,13 +108,33 @@ posted, ↗ jump link) and five dropdowns:
 Destructive actions (Reset Roles, Clear Log Channel) require ephemeral
 confirmation and are rate-limited per user.
 
+## Map rotation safety
+
+Rotation data is stored canonically in `data/rotation_state.json`; Discord is a
+rendered view and a recovery fallback. Every state has a revision number, so an
+old edit preview cannot overwrite a newer manual or scheduled update. Posting
+uses an idempotent upsert and removes confirmed duplicate rotation messages only
+after the desired message is live.
+
+## PM2 (Windows/local)
+
+Use the included single-instance configuration:
+
+```bash
+pm2 delete mwf-bot
+pm2 start ecosystem.config.js
+pm2 save
+```
+
+Do not run `npm start` at the same time as PM2.
+
 ## Scheduled jobs
 
 - **Weekly reset** — removes Allies/Axis S1+S2 roles every `RESET_DAY` at
   `RESET_HOUR`:00 Warsaw time (default Wednesday 22:00).
-- **Rotation auto-advance** — daily at 00:30 Warsaw; when the first month of
-  the rotation embed is entirely in the past, shifts the window forward one
-  month and auto-fills new Wednesdays from the map cycle.
+- **Rotation auto-advance** — daily at 00:30 Warsaw; advances at calendar-month
+  boundaries and catches up multiple missed months in one operation (maximum
+  24 per run), then updates Discord once.
 
 ## License
 

@@ -29,7 +29,8 @@ const {
   loadServerData,
   clearServerData,
 } = require('./lineupStore');
-const { loadRotationMsgId, clearRotationMsgId } = require('./rotationStore');
+const { loadRotationMsgId, clearRotationMsgId, loadRotationState, rotationHistoryCount } = require('./rotationStore');
+const { monthHeader, MAP_CYCLE, warsawDateParts, validateState } = require('./rotationState');
 const { FACTIONS } = require('../config/factions');
 
 const REQUIRED_ENV_VARS = [
@@ -48,6 +49,7 @@ const CHANNEL_CHECKS = [
   { envVar: 'MAP_ROTATION_CHANNEL',   label: 'Map Rotation',   needsManage: false, multiple: false },
   { envVar: 'NODES_CHANNELS',         label: 'Nodes',          needsManage: false, multiple: true  },
   { envVar: 'ADMIN_LOG_CHANNEL',      label: 'Admin Logs',     needsManage: true,  multiple: false, optional: true },
+  { envVar: 'TEAM_REP_CHANNEL',       label: 'Team Rep',       needsManage: false, multiple: false, optional: true },
 ];
 
 function permName(flag) {
@@ -276,7 +278,66 @@ async function runHealthcheck(client, guildId) {
     passed++;
   }
 
-  // 5. Stale cache self-heal (silent; reported as a note, not a failure)
+  // 5. Optional Team Rep feature: if either setting is present, require and
+  // validate both the channel and role, including role hierarchy.
+  const teamRepChannelId = process.env.TEAM_REP_CHANNEL;
+  const teamRepRoleId = process.env.TEAM_REP_ROLE_ID;
+  if (teamRepChannelId || teamRepRoleId) {
+    if (!teamRepChannelId) {
+      total++;
+      issues.push({
+        kind: 'env', key: 'TEAM_REP_CHANNEL', label: 'env: TEAM_REP_CHANNEL',
+        detail: 'missing while TEAM_REP_ROLE_ID is configured',
+        hint: 'set TEAM_REP_CHANNEL or remove TEAM_REP_ROLE_ID to disable the feature',
+      });
+    }
+    total++;
+    if (!teamRepRoleId) {
+      issues.push({
+        kind: 'env', key: 'TEAM_REP_ROLE_ID', label: 'role: Team Rep',
+        detail: 'TEAM_REP_ROLE_ID not set',
+        hint: 'set TEAM_REP_ROLE_ID or remove TEAM_REP_CHANNEL to disable the feature',
+      });
+    } else if (!guild) {
+      issues.push({ kind: 'guild', label: 'role: Team Rep', detail: 'guild unreachable', hint: 'see guild issue above' });
+    } else {
+      const role = await guild.roles.fetch(teamRepRoleId).catch(() => null);
+      if (!role) {
+        issues.push({
+          kind: 'role-missing', envVar: 'TEAM_REP_ROLE_ID', roleId: teamRepRoleId,
+          label: 'role: Team Rep', detail: 'role not found',
+          hint: 'update TEAM_REP_ROLE_ID with the correct Discord role ID',
+        });
+      } else if (botHighest && botHighest.comparePositionTo(role) <= 0) {
+        issues.push({
+          kind: 'role-hierarchy', roleName: role.name, botRoleName: botHighest.name,
+          label: 'role: Team Rep', detail: `bot role (${botHighest.name}) is not above ${role.name}`,
+          hint: 'move the bot role above the Team Rep role',
+        });
+      } else {
+        passed++;
+      }
+    }
+  }
+
+  // 6. Rotation diagnostics (admin-only healthcheck output).
+  if (process.env.MAP_ROTATION_CHANNEL) {
+    const rotationState = loadRotationState(process.env.MAP_ROTATION_CHANNEL);
+    if (rotationState) {
+      try {
+        validateState(rotationState);
+        const [first, second] = rotationState.months;
+        const now = warsawDateParts();
+        const aligned = first.year === now.year && first.month === now.month;
+        const nextMap = MAP_CYCLE[rotationState.nextMapIndex];
+        notes.push(`rotation ${monthHeader(first.year, first.month)} / ${monthHeader(second.year, second.month)} · revision ${rotationState.revision} · ${aligned ? 'calendar aligned' : 'needs Sync'} · next ${nextMap} · ${rotationHistoryCount(process.env.MAP_ROTATION_CHANNEL)} undo state(s)`);
+      } catch (err) {
+        issues.push({ kind: 'rotation-state', label: 'rotation state', detail: err.message, hint: 'use Sync Map Rotation' });
+      }
+    }
+  }
+
+  // 7. Stale cache self-heal (silent; reported as a note, not a failure)
   try {
     const cleared = await healStaleCache(client);
     if (cleared > 0) {

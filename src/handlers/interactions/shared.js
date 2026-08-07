@@ -28,16 +28,29 @@ async function sendLog(client, embed) {
  */
 async function bulkDeleteFiltered(channel, filterFn) {
   let deleted = 0;
-  while (true) {
-    const fetched = await channel.messages.fetch({ limit: 100 });
+  let before;
+  const bulkDeleteCutoff = Date.now() - (14 * 24 * 60 * 60 * 1000);
+
+  do {
+    const fetched = await channel.messages.fetch({ limit: 100, before });
     if (fetched.size === 0) break;
+    before = fetched.last()?.id;
     const toDelete = fetched.filter(filterFn);
-    if (toDelete.size === 0) break;
-    const result = await channel.bulkDelete(toDelete, true).catch(() => null);
-    const count = result ? result.size : 0;
-    deleted += count;
-    if (count === 0 || fetched.size < 100) break;
-  }
+    const recent = toDelete.filter(message => message.createdTimestamp > bulkDeleteCutoff);
+    const old = toDelete.filter(message => message.createdTimestamp <= bulkDeleteCutoff);
+
+    if (recent.size) {
+      const result = await channel.bulkDelete(recent, true).catch(() => null);
+      deleted += result?.size || 0;
+    }
+    for (const message of old.values()) {
+      const removed = await message.delete().then(() => true).catch(() => false);
+      if (removed) deleted++;
+    }
+
+    if (fetched.size < 100) break;
+  } while (before);
+
   return deleted;
 }
 

@@ -1,26 +1,28 @@
-/**
- * nodesStore.js
- *
- * Persists NODES embed data in /app/data/ (Docker named volume — survives restarts).
- * Prevents the 3-second Discord modal timeout by caching data locally
- * instead of making async API calls before showing the edit modal.
- */
+/** Persists NODES embed data in the configured data directory. */
 
-const fs   = require('fs');
-const path = require('path');
+const fs = require('fs');
+const logger = require('./logger');
+const { dataPath } = require('./dataDir');
 
-const DATA_PATH = path.join('/app/data', 'nodes_data.json');
+const DATA_PATH = dataPath('nodes_data.json');
 
 function saveNodesData(fields) {
   try {
-    fs.writeFileSync(DATA_PATH, JSON.stringify(fields, null, 2), 'utf8');
-  } catch (_) {}
+    const tempPath = `${DATA_PATH}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(fields, null, 2), 'utf8');
+    fs.renameSync(tempPath, DATA_PATH);
+    return true;
+  } catch (err) {
+    logger.warn(`Could not write ${DATA_PATH}: ${err.message}`);
+    return false;
+  }
 }
 
 function loadNodesData() {
   try {
     return JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'));
-  } catch (_) {
+  } catch (err) {
+    if (err.code !== 'ENOENT') logger.warn(`Could not read ${DATA_PATH}: ${err.message}`);
     return null;
   }
 }

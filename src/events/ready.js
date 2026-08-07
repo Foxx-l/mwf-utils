@@ -1,10 +1,12 @@
 const { Events, EmbedBuilder } = require('discord.js');
 const path = require('path');
 const logger = require('../utils/logger');
+const { COLORS } = require('../config/theme');
 const emojiState = require('../utils/emojiState');
 const { startScheduler, startRotationScheduler } = require('../utils/scheduler');
 const { warmRotationCache } = require('../handlers/interactions/rotationHandler');
 const { sendLog } = require('../handlers/interactions/shared');
+const { ensureDataDir, DATA_DIR } = require('../utils/dataDir');
 const pkg = require('../../package.json');
 
 module.exports = {
@@ -22,16 +24,21 @@ module.exports = {
     startScheduler(client);
     startRotationScheduler(client);
 
-    warmRotationCache(client).catch(err =>
-      logger.warn(`warmRotationCache failed: ${err.message}`)
-    );
+    const dataWritable = ensureDataDir();
+    const rotation = await warmRotationCache(client).catch(err => {
+      logger.warn(`warmRotationCache failed: ${err.message}`);
+      return { ok: false, reason: err.message };
+    });
 
-    // Post a one-line startup notice to the admin log so admins can see
-    // when the bot came online and which version is running.
     const startupEmbed = new EmbedBuilder()
-      .setColor(0x2ecc71)
+      .setColor(dataWritable && rotation.ok ? COLORS.success : COLORS.warning)
       .setTitle('🚀 Bot Online')
       .setDescription(`Version \`${pkg.version}\` · Node ${process.version}`)
+      .addFields(
+        { name: 'Persistent Data', value: dataWritable ? `✅ Writable\n\`${DATA_DIR}\`` : '❌ Not writable', inline: true },
+        { name: 'Rotation', value: rotation.ok ? '✅ Synchronized' : `⚠️ ${rotation.reason || 'Not posted'}`, inline: true },
+        { name: 'Schedulers', value: '✅ Started', inline: true }
+      )
       .setTimestamp();
     sendLog(client, startupEmbed).catch(() => {});
   }

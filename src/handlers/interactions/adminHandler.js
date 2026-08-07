@@ -9,6 +9,7 @@ const {
   ButtonStyle
 } = require('discord.js');
 const logger = require('../../utils/logger');
+const { COLORS } = require('../../config/theme');
 const { createFactionEmbed, createSuccessEmbed, createErrorEmbed } = require('../../utils/embeds');
 const { createFactionButtons } = require('../../utils/buttons');
 const { sendLog, bulkDeleteFiltered, batchRoleRemove } = require('./shared');
@@ -71,7 +72,7 @@ async function handleAdminReset(interaction) {
   if (!(await _enforceAdminCooldown(interaction, 'Reset Roles'))) return false;
 
   await interaction.update({
-    embeds: [new EmbedBuilder().setColor(0x011327).setDescription('⏳ Resetting faction roles...')],
+    embeds: [new EmbedBuilder().setColor(COLORS.primary).setDescription('⏳ Resetting faction roles...')],
     components: []
   });
 
@@ -99,7 +100,7 @@ async function handleAdminReset(interaction) {
   logger.info(`${interaction.user.tag} reset faction roles — ${totalCount} removal(s), ${totalErrors.length} error(s)`);
 
   const logEmbed = new EmbedBuilder()
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setTitle('🔁 Manual Faction Reset')
     .addFields(
       { name: '👤 Admin',         value: `<@${interaction.user.id}>`, inline: true },
@@ -151,7 +152,7 @@ async function handleAdminReload(interaction) {
   logger.info(`${interaction.user.tag} reloaded faction embed (deleted ${deleted} embed(s))`);
 
   await sendLog(interaction.client, new EmbedBuilder()
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setTitle('🔄 Embed Reloaded')
     .addFields(
       { name: '👤 Admin',          value: `<@${interaction.user.id}>`, inline: true },
@@ -202,7 +203,7 @@ async function handleAdminClearLogs(interaction) {
   if (!(await _enforceAdminCooldown(interaction, 'Clear Log Channel'))) return false;
 
   await interaction.update({
-    embeds: [new EmbedBuilder().setColor(0x011327).setDescription('⏳ Clearing logs...')],
+    embeds: [new EmbedBuilder().setColor(COLORS.primary).setDescription('⏳ Clearing logs...')],
     components: []
   });
 
@@ -254,7 +255,7 @@ async function handleAdminHealthcheck(interaction) {
 
 function _buildHealthcheckEmbed(passed, total, issues, notes) {
   const allGood = issues.length === 0;
-  const color   = allGood ? 0x2ecc71 : 0xe67e22;
+  const color   = allGood ? COLORS.success : COLORS.warning;
   const title   = allGood
     ? `✅ Healthcheck — ${passed}/${total} checks passed`
     : `⚠️ Healthcheck — ${passed}/${total} checks passed`;
@@ -409,7 +410,7 @@ async function handleAdminHealthcheckAutofix(interaction) {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(0x3498db)
+    .setColor(COLORS.discord)
     .setTitle('🔧 Auto-fix suggestions')
     .setDescription(sections.join('\n\n').slice(0, 4000))
     .setFooter({ text: 'Re-run Healthcheck after applying fixes to verify.' })

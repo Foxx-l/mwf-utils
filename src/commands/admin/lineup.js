@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const logger = require('../../utils/logger');
+const { COLORS } = require('../../config/theme');
 const { saveLineupData } = require('../../utils/lineupStore');
 
 const TIMES = {
@@ -132,7 +133,7 @@ module.exports = {
         { name: 'Game Start',      value: `<t:${startUnix}:t>`, inline: true },
       )
       .setImage('attachment://lineup.png')
-      .setColor(0x011327);
+      .setColor(COLORS.primary);
 
     const posted = await channel.send({
       embeds: [lineupEmbed],
@@ -149,7 +150,7 @@ module.exports = {
         .setTitle('📋 Lineup Posted')
         .setDescription(`Lineup posted to ${channel}`)
         .addFields({ name: 'Admin', value: `<@${interaction.user.id}>`, inline: true })
-        .setColor(0x5865f2)
+        .setColor(COLORS.discord)
         .setTimestamp();
       logChannel.send({ embeds: [logEmbed] }).catch(() => {});
     }

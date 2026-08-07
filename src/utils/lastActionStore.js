@@ -1,14 +1,10 @@
-/**
- * lastActionStore.js
- *
- * Persists the most recent admin action so the panel footer can show
- * "last: <action> by <@user> Nm ago" without having to scan #admin-logs.
- */
+/** Persists the most recent admin action for the panel footer. */
 
-const fs   = require('fs');
-const path = require('path');
+const fs = require('fs');
+const logger = require('./logger');
+const { dataPath } = require('./dataDir');
 
-const DATA_PATH = path.join('/app/data', 'last_action.json');
+const DATA_PATH = dataPath('last_action.json');
 
 function saveLastAction(action, userId, userTag) {
   try {
@@ -17,13 +13,18 @@ function saveLastAction(action, userId, userTag) {
       JSON.stringify({ action, userId, userTag, ts: Date.now() }, null, 2),
       'utf8'
     );
-  } catch (_) {}
+    return true;
+  } catch (err) {
+    logger.warn(`Could not save last action to ${DATA_PATH}: ${err.message}`);
+    return false;
+  }
 }
 
 function loadLastAction() {
   try {
     return JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'));
-  } catch (_) {
+  } catch (err) {
+    if (err.code !== 'ENOENT') logger.warn(`Could not read ${DATA_PATH}: ${err.message}`);
     return null;
   }
 }

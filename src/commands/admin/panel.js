@@ -7,8 +7,15 @@ const {
   EmbedBuilder
 } = require('discord.js');
 
-const { loadLineupData, loadServerData } = require('../../utils/lineupStore');
-const { loadRotationMsgId }              = require('../../utils/rotationStore');
+const {
+  loadLineupData,
+  loadServerData,
+  saveLineupData,
+  saveServerData,
+} = require('../../utils/lineupStore');
+const { loadRotationMsgId, loadRotationState, rotationHistoryCount } = require('../../utils/rotationStore');
+const { monthHeader }                     = require('../../utils/rotationState');
+const { COLORS }                          = require('../../config/theme');
 const { loadLastAction }                 = require('../../utils/lastActionStore');
 const pkg = require('../../../package.json');
 
@@ -39,18 +46,6 @@ function listMissingEnv() {
 // Default: Wednesday 22:00 Europe/Warsaw. Configurable via RESET_DAY (0-6)
 // and RESET_HOUR (0-23). Returns a Unix seconds timestamp for the next
 // occurrence after `now`.
-const DAY_NAMES_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-// Human-readable label for the configured auto-reset slot,
-// e.g. "Wed 22:00 Warsaw".
-function nextResetLabel() {
-  const day  = parseInt(process.env.RESET_DAY  ?? '3', 10);
-  const hour = parseInt(process.env.RESET_HOUR ?? '22', 10);
-  if (!Number.isFinite(day) || !Number.isFinite(hour))    return null;
-  if (day < 0 || day > 6 || hour < 0 || hour > 23)        return null;
-  return `${DAY_NAMES_SHORT[day]} ${String(hour).padStart(2, '0')}:00 Warsaw`;
-}
-
 function nextResetUnix(now = new Date()) {
   const day  = parseInt(process.env.RESET_DAY  ?? '3', 10);
   const hour = parseInt(process.env.RESET_HOUR ?? '22', 10);
@@ -177,23 +172,61 @@ async function probeFaction(client) {
 }
 
 async function probeLineup(client, server) {
-  const ch = process.env.LINEUP_CHANNEL;
-  if (!ch) return null;
-  const data = loadLineupData(ch, server);
-  return messageLocator(client, ch, data?.messageId);
+  const channelId = process.env.LINEUP_CHANNEL;
+  if (!channelId) return null;
+  const data = loadLineupData(channelId, server);
+  const cached = await messageLocator(client, channelId, data?.messageId);
+  if (cached) return cached;
+
+  try {
+    const channel = await client.channels.fetch(channelId);
+    const messages = await channel.messages.fetch({ limit: 50 });
+    const serverLabel = server === 'S1' ? 'Server 1' : 'Server 2';
+    const match = messages.find(m =>
+      m.author.id === client.user.id
+      && m.embeds.some(e => e.image && e.description?.includes(`**${serverLabel}**`))
+    );
+    if (!match) return null;
+    const caption = match.embeds[0]?.description || '';
+    saveLineupData(channelId, match.id, caption, server);
+    return { channelId, messageId: match.id };
+  } catch (_) {
+    return null;
+  }
 }
 
 async function probeServer(client, server) {
-  const ch = process.env.SERVER_DETAILS_CHANNEL;
-  if (!ch) return null;
-  const data = loadServerData(ch, server);
-  return messageLocator(client, ch, data?.messageId);
+  const channelId = process.env.SERVER_DETAILS_CHANNEL;
+  if (!channelId) return null;
+  const data = loadServerData(channelId, server);
+  const cached = await messageLocator(client, channelId, data?.messageId);
+  if (cached) return cached;
+
+  try {
+    const channel = await client.channels.fetch(channelId);
+    const messages = await channel.messages.fetch({ limit: 50 });
+    const expectedTitle = `Server Details (${server})`;
+    const match = messages.find(m =>
+      m.author.id === client.user.id && m.embeds.some(e => e.title === expectedTitle)
+    );
+    if (!match) return null;
+    const fields = match.embeds[0]?.fields || [];
+    const serverName = fields.find(f => f.name.includes('Server Name'))?.value || 'Unknown';
+    const serverPassword = fields.find(f => f.name.includes('Password'))?.value || 'Unknown';
+    saveServerData(channelId, match.id, serverName, serverPassword, server);
+    return { channelId, messageId: match.id };
+  } catch (_) {
+    return null;
+  }
 }
 
 async function probeRotation(client) {
   const ch = process.env.MAP_ROTATION_CHANNEL;
   if (!ch) return null;
-  return messageLocator(client, ch, loadRotationMsgId(ch));
+  const locator = await messageLocator(client, ch, loadRotationMsgId(ch));
+  if (!locator) return null;
+  const state = loadRotationState(ch);
+  return { ...locator, state, historyCount: rotationHistoryCount(ch) };
 }
 
 async function probeNodes(client) {
@@ -262,8 +295,13 @@ function serverPairRow(emojiLabel, l1, l2, guildId, envKey) {
 
 function rotationRow(locator, guildId) {
   const ch = process.env.MAP_ROTATION_CHANNEL;
-  const icon = locator ? OK : NO;
-  return `🗺️ **Map Rotation**   ${icon}${bestSuffix(guildId, locator, ch)}`;
+  if (!locator) return `🗺️ **Map Rotation**   ${NO}${channelSuffix(guildId, ch)}`;
+  const months = locator.state?.months;
+  const window = months?.length === 2
+    ? `${monthHeader(months[0].year, months[0].month)} / ${monthHeader(months[1].year, months[1].month)}`
+    : 'state recovering';
+  const history = locator.historyCount ? ` • ${locator.historyCount} undo` : '';
+  return `🗺️ **Map Rotation**   ${OK}${bestSuffix(guildId, locator, ch)}   _${window}${history}_`;
 }
 
 function nodesRow({ total, hits }, guildId) {
@@ -357,9 +395,9 @@ function rotNodesMenu() {
       .setPlaceholder('🗺️ 📍  Map Rotation & Nodes — choose action')
       .addOptions(
         new StringSelectMenuOptionBuilder()
-          .setValue('rotation:post')
-          .setLabel('Post Map Rotation')
-          .setDescription('Publish a fresh map rotation embed.')
+          .setValue('rotation:sync')
+          .setLabel('Sync Map Rotation')
+          .setDescription('Repair month alignment, cache, message, and duplicates.')
           .setEmoji('📤'),
         new StringSelectMenuOptionBuilder()
           .setValue('rotation:edit')
@@ -369,8 +407,18 @@ function rotNodesMenu() {
         new StringSelectMenuOptionBuilder()
           .setValue('rotation:advance')
           .setLabel('Advance Rotation (+1 month)')
-          .setDescription('Scroll months forward and auto-fill Wednesdays via Utah→SMDM→Omaha→Carentan→SME cycle.')
+          .setDescription('Preview and confirm moving the window forward.')
           .setEmoji('⏩'),
+        new StringSelectMenuOptionBuilder()
+          .setValue('rotation:reset')
+          .setLabel('Reset to Current Month')
+          .setDescription('Rebuild the current two-month window; supports Undo.')
+          .setEmoji('♻️'),
+        new StringSelectMenuOptionBuilder()
+          .setValue('rotation:undo')
+          .setLabel('Undo Rotation Change')
+          .setDescription('Restore the most recent saved rotation state.')
+          .setEmoji('↩️'),
         new StringSelectMenuOptionBuilder()
           .setValue('nodes:post')
           .setLabel('Post Nodes')
@@ -452,7 +500,7 @@ async function buildPanelPayload(client, guildId) {
 
   const embed = new EmbedBuilder()
     .setTitle('⚙️  Admin Panel')
-    .setColor(0x011327)
+    .setColor(COLORS.primary)
     .setDescription(description)
     .setFooter({ text: buildFooter() });
 
@@ -474,7 +522,7 @@ async function refreshPanelMessage(interaction) {
     if (!msg) return;
     const payload = await buildPanelPayload(interaction.client, interaction.guildId);
     await msg.edit(payload);
-  } catch (_) {}
+  } catch (_) { /* best effort */ }
 }
 
 module.exports = {
