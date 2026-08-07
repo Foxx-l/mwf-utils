@@ -118,8 +118,10 @@ async function loadOrRecoverRotation(client, channelId) {
 
   let state = validStoredState(channelId);
   const candidateId = state?.messageId || loadRotationMsgId(channelId);
+  // force: true bypasses the local cache — a message deleted on Discord
+  // must look gone even if we still hold a cached copy of it.
   let message = candidateId
-    ? await channel.messages.fetch(candidateId).catch(() => null)
+    ? await channel.messages.fetch({ message: candidateId, force: true }).catch(() => null)
     : null;
   if (!isRotationMessage(message, client.user.id)) message = null;
 
@@ -152,8 +154,15 @@ async function upsertRotation(client, state, { removeDuplicates = true } = {}) {
   const embed = buildRotationEmbed(state); // validates before changing Discord
 
   if (message) {
-    await message.edit({ embeds: [embed], content: null });
-  } else {
+    try {
+      await message.edit({ embeds: [embed], content: null });
+    } catch (err) {
+      if (err?.code !== 10008) throw err;
+      logger.warn(`Rotation message ${message.id} was deleted mid-update; posting a fresh one.`);
+      message = null;
+    }
+  }
+  if (!message) {
     message = await recovered.channel.send({ embeds: [embed] });
   }
 

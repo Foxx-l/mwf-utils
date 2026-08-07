@@ -104,7 +104,7 @@ async function messageExists(client, channelId, messageId) {
   if (!channel) return false;
 
   try {
-    const msg = await channel.messages.fetch(messageId);
+    const msg = await channel.messages.fetch({ message: messageId, force: true });
     return Boolean(msg);
   } catch (err) {
     return GONE_CODES.has(err?.code) ? false : null;
