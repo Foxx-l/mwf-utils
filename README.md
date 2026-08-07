@@ -28,8 +28,8 @@ details, map rotation, and node info, all driven from a single admin panel.
 ## Quick start (Docker)
 
 ```bash
-git clone https://github.com/janush7/faction-bot.git
-cd faction-bot
+git clone https://github.com/jemiel1/mwf-utils.git
+cd mwf-utils
 cp .env.example .env
 # edit .env and fill in IDs/tokens
 docker compose up -d --build
