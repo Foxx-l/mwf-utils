@@ -61,6 +61,10 @@ const {
 } = require('../handlers/interactions/rotationHandler');
 const { handleAdminPostAllMissing } = require('../handlers/interactions/postAllHandler');
 const {
+  handleTeamRepApprove,
+  handleTeamRepReject,
+} = require('../handlers/interactions/teamrepHandler');
+const {
   handleAdminResetConfirm,
   handleAdminResetCancel,
   handleAdminReset,
@@ -185,6 +189,10 @@ const BUTTON_ROUTES = [
   { prefix: 'lineup_editserver:', run: handleLineupEditServerButton },
   { prefix: 'faction_',
     run: i => handleFactionSelection(i, i.customId.slice('faction_'.length)) },
+
+  // Team Rep approval queue (admins decide yes/no on each request)
+  { prefix: 'teamrep_approve:', admin: true, run: handleTeamRepApprove },
+  { prefix: 'teamrep_reject:',  admin: true, run: handleTeamRepReject },
 
   // Destructive admin controls (ephemeral confirm dialogs)
   { id: 'admin_reset_confirm',     admin: true, track: 'Reset Roles',       run: handleAdminReset },

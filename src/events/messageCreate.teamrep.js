@@ -1,8 +1,22 @@
 // @ts-check
+/**
+ * messageCreate.teamrep.js — Team Rep REQUEST flow.
+ *
+ * When a member posts in TEAM_REP_CHANNEL the bot no longer assigns the role
+ * directly. It posts an approval embed (replying to the request) with
+ * Approve / Reject buttons and pings TEAM_REP_PING_ROLE so admins notice.
+ * The actual decision lives in handlers/interactions/teamrepHandler.js.
+ */
+
 const logger = require('../utils/logger');
 const { COLORS } = require('../config/theme');
+const {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require('discord.js');
 const { sendLog } = require('../handlers/interactions/shared');
-const { EmbedBuilder } = require('discord.js');
 
 function nonNegativeEnvNumber(name, fallback) {
   const raw = process.env[name];
@@ -14,7 +28,6 @@ function nonNegativeEnvNumber(name, fallback) {
 const MAX_RETRIES = Math.floor(nonNegativeEnvNumber('TEAM_REP_MAX_RETRIES', 3));
 const BACKOFF_BASE_MS = nonNegativeEnvNumber('TEAM_REP_BACKOFF_BASE_MS', 500);
 const TEAM_REP_COOLDOWN_MS = nonNegativeEnvNumber('TEAM_REP_COOLDOWN_MS', 60_000);
-const TEAM_REP_LOG_COLOR = COLORS.primary;
 const requestInProgress = new Set();
 const lastRequestAt = new Map();
 
@@ -58,8 +71,8 @@ async function tryAddRoleWithRetry(member, roleId) {
 
 /**
  * Assigns the Team Rep role with retry/backoff.
- * Deliberately takes a guild (not a message) so both the messageCreate flow
- * and the /teamrep slash command share the exact same code path.
+ * Deliberately takes a guild (not a message) so the approval buttons and the
+ * /teamrep slash command share the exact same code path.
  */
 async function assignTeamRep(guild, member, roleId) {
   if (!guild) return { success: false, fatal: true, reason: 'no_guild' };
@@ -81,8 +94,84 @@ async function assignTeamRep(guild, member, roleId) {
   return await tryAddRoleWithRetry(member, roleId);
 }
 
+// ── Request flow ──────────────────────────────────────────────────────────────
+
+/**
+ * Finds an still-open approval embed for this user among recent channel
+ * messages, so a restarted bot (empty in-memory state) doesn't post a
+ * duplicate request while one is pending.
+ * @param {import('discord.js').TextBasedChannel} channel
+ * @param {string} userId
+ */
+async function findPendingRequest(channel, userId) {
+  const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+  if (!messages) return null;
+  const botId = channel.client?.user?.id;
+  return messages.find(m =>
+    m.author?.id === botId &&
+    m.components?.some(row =>
+      row.components?.some(b => typeof b.customId === 'string' && b.customId.startsWith(`teamrep_approve:${userId}:`))
+    )
+  ) ?? null;
+}
+
+/**
+ * Posts the approval embed (as a reply to the request) and pings the
+ * configured role so admins get notified.
+ * @param {import('discord.js').Message} message
+ * @param {import('discord.js').GuildMember} member
+ */
+async function postApprovalRequest(message, member) {
+  const channel = /** @type {import('discord.js').GuildTextBasedChannel} */ (message.channel);
+  const pingRoleId = process.env.TEAM_REP_PING_ROLE;
+  const content = pingRoleId ? `<@&${pingRoleId}>` : '';
+
+  const embed = new EmbedBuilder()
+    .setTitle('🟡 Team Rep Request')
+    .setDescription(`${member} (\`${member.user.tag}\`) wants the **Team Rep** role.\nApprove or reject below.`)
+    .setColor(COLORS.warning)
+    .setTimestamp();
+
+  const row = /** @type {import('discord.js').ActionRowBuilder<import('discord.js').ButtonBuilder>} */ (
+    new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`teamrep_approve:${member.id}:${message.id}`)
+      .setLabel('Approve')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('✅'),
+      new ButtonBuilder()
+        .setCustomId(`teamrep_reject:${member.id}:${message.id}`)
+        .setLabel('Reject')
+        .setStyle(ButtonStyle.Danger)
+        .setEmoji('❌'),
+    )
+  );
+
+  await channel.send({
+    content,
+    embeds: [embed],
+    components: [row],
+    reply: { messageReference: message.id, failIfNotExists: false },
+  });
+
+  await message.react('⏳').catch(() => {});
+
+  sendLog(message.client, new EmbedBuilder()
+    .setTitle('Team Rep Requested')
+    .setColor(COLORS.warning)
+    .addFields(
+      { name: 'Requester', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
+      { name: 'Channel', value: channel.toString(), inline: true },
+    )
+    .setTimestamp()
+  ).catch(() => {});
+
+  logger.info(`teamRep: request posted for ${member.user.tag}`);
+}
+
 module.exports = {
   name: 'messageCreate',
+  /** @param {import('discord.js').Message} message */
   async execute(message) {
     try {
       // Ignore bots and DMs
@@ -97,6 +186,7 @@ module.exports = {
       const member = await message.guild.members.fetch(message.author.id).catch(() => null);
       if (!member) return;
 
+      // Already a Team Rep — nothing to request.
       if (member.roles.cache.has(roleId)) {
         await message.react('ℹ️').catch(() => {});
         return;
@@ -123,82 +213,23 @@ module.exports = {
         }, TEAM_REP_COOLDOWN_MS);
         cleanup.unref?.();
       }
-      let res;
+
       try {
-        res = await assignTeamRep(message.guild, member, roleId);
+        // A restart must not duplicate an embed that is still pending.
+        const pending = await findPendingRequest(message.channel, userId);
+        if (pending) {
+          await message.react('⏳').catch(() => {});
+          return;
+        }
+        await postApprovalRequest(message, member);
       } finally {
         requestInProgress.delete(userId);
       }
-
-      const targetRole = message.guild.roles.cache.get(roleId);
-
-      if (res.success) {
-        await message.react('✅').catch(() => {});
-
-        const adminLog = process.env.ADMIN_LOG_CHANNEL;
-        if (adminLog) {
-          const embed = new EmbedBuilder()
-            .setTitle('Team Rep Role Assigned')
-            .setColor(TEAM_REP_LOG_COLOR)
-            .addFields(
-              { name: 'Requester', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
-              { name: 'Channel', value: message.channel.toString(), inline: true },
-              { name: 'Role', value: targetRole?.name || 'Unknown', inline: true },
-            )
-            .setTimestamp();
-          sendLog(message.client, embed).catch(() => {});
-        }
-        return;
-      }
-
-      // Failure paths
-      if (res.fatal) {
-        await message.react('❌').catch(() => {});
-
-        // Log a helpful admin message
-        const adminLog = process.env.ADMIN_LOG_CHANNEL;
-        if (adminLog) {
-          const embed = new EmbedBuilder()
-            .setTitle('Team Rep Assignment Failed')
-            .setColor(TEAM_REP_LOG_COLOR)
-            .addFields(
-              { name: 'Requester', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
-              { name: 'Channel', value: message.channel.toString(), inline: true },
-              { name: 'Role', value: targetRole?.name || 'Missing', inline: true },
-              { name: 'Reason', value: `${res.reason || res.error?.message || 'unknown'}`, inline: false },
-              { name: 'Attempts', value: `${res.attempts || 0}`, inline: true },
-            )
-            .setTimestamp();
-          sendLog(message.client, embed).catch(() => {});
-        }
-        return;
-      }
-
-      // Non-fatal failure after retries
-      await message.react('❌').catch(() => {});
-      logger.warn(`teamRep: failed to assign role to ${member.id}: ${res.error?.message}`);
-
-      // Optional admin log for non-fatal failures
-      const adminLog = process.env.ADMIN_LOG_CHANNEL;
-      if (adminLog) {
-        const embed = new EmbedBuilder()
-          .setTitle('Team Rep Assignment Failed')
-          .setColor(TEAM_REP_LOG_COLOR)
-          .addFields(
-            { name: 'Requester', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
-            { name: 'Channel', value: message.channel.toString(), inline: true },
-            { name: 'Role', value: targetRole?.name || 'Missing', inline: true },
-            { name: 'Error', value: `${res.error?.message || 'unknown'}`.slice(0, 1000), inline: false },
-            { name: 'Attempts', value: `${res.attempts || 0}`, inline: true },
-          )
-          .setTimestamp();
-        sendLog(message.client, embed).catch(() => {});
-      }
-
     } catch (err) {
       logger.warn(`teamRep handler failed: ${err.message}`);
     }
   },
-  // Exported for testing
+  // Exported for testing and shared with the approval handler / slash command
   assignTeamRep,
+  findPendingRequest,
 };

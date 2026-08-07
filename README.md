@@ -22,6 +22,10 @@ details, map rotation, and node info, all driven from a single admin panel.
   listed in `NODES_CHANNELS`.
 - **Healthcheck** — validates env vars, channel permissions, and faction-role
   hierarchy, with actionable hints for each issue.
+- **Team Rep approval queue** — members request the role by posting in
+  `TEAM_REP_CHANNEL`; `TEAM_REP_PING_ROLE` gets pinged and admins approve or
+  reject with ✅/❌ buttons on the request (no more auto-assign). `/teamrep
+  add|remove` still works for manual management.
 - **Audit logging** — every admin action is logged to `ADMIN_LOG_CHANNEL`;
   the panel footer shows the most recent action.
 
@@ -89,7 +93,8 @@ remaining values enable their corresponding features.
 | `MAP_ROTATION_CHANNEL` | Channel for the map rotation embed |
 | `NODES_CHANNELS` | Comma-separated list of channels for the NODES embed |
 | `TEAM_REP_CHANNEL` | Channel where posting any message requests the Team Rep role (optional feature) |
-| `TEAM_REP_ROLE_ID` | Role assigned by the Team Rep automation (optional feature) |
+| `TEAM_REP_ROLE_ID` | Role granted when a Team Rep request is approved (optional feature) |
+| `TEAM_REP_PING_ROLE` | Role pinged on every new Team Rep request (optional feature) |
 
 Optional: `SERVER_S{1,2}_{NAME,PASSWORD}`, `RESET_DAY`, `RESET_HOUR`,
 `ROTATION_EVENT_TIME`, `FACTION_SWAP_COOLDOWN_SECONDS`,

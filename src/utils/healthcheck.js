@@ -324,6 +324,9 @@ async function runHealthcheck(client, guildId) {
         passed++;
       }
     }
+    if (teamRepChannelId && teamRepRoleId && !process.env.TEAM_REP_PING_ROLE) {
+      notes.push('team rep requests: TEAM_REP_PING_ROLE not set — new requests will not ping anyone');
+    }
   }
 
   // 6. Rotation diagnostics (admin-only healthcheck output).
