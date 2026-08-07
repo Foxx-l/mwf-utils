@@ -17,9 +17,10 @@ Items are grouped by priority and complexity.
 - `/edit lineup` — edit caption of the last lineup embed in-place
 - `/edit server` — edit server name/password of the last server details embed in-place
 - Channel restrictions for `/lineup` and `/server` commands via env vars
-- Team Rep Role Automation — users can post in the configured request channel to receive the Team Rep role (implemented in `src/events/messageCreate.teamrep.js`).
-  - Required env vars: `TEAM_REP_CHANNEL`, `TEAM_REP_ROLE_ID`
-  - Optional tuning env vars: `TEAM_REP_COOLDOWN_MS`, `TEAM_REP_MAX_RETRIES`, `TEAM_REP_BACKOFF_BASE_MS`
+- Team Rep approval queue — posting in `TEAM_REP_CHANNEL` creates an approval
+  card in the admin log channel (pinging `TEAM_REP_PING_ROLE`); admins approve
+  or reject with buttons. `/teamrep add|remove` for manual management.
+  - Tuning env vars: `TEAM_REP_COOLDOWN_MS`, `TEAM_REP_MAX_RETRIES`, `TEAM_REP_BACKOFF_BASE_MS`
 
 ---
 

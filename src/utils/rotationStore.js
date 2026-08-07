@@ -6,7 +6,6 @@ const path = require('path');
 const logger = require('./logger');
 const { dataPath } = require('./dataDir');
 
-const RAW_PATH = dataPath('rotation_raw.json');
 const MSG_PATH = dataPath('rotation_msg.json');
 const STATE_PATH = dataPath('rotation_state.json');
 const HISTORY_PATH = dataPath('rotation_history.json');
@@ -32,16 +31,6 @@ function _write(filePath, data) {
     logger.warn(`Could not write ${filePath}: ${err.message}`);
     return false;
   }
-}
-
-function saveRotationRaw(messageId, data) {
-  const store = _read(RAW_PATH);
-  store[messageId] = data;
-  return _write(RAW_PATH, store);
-}
-
-function loadRotationRaw(messageId) {
-  return _read(RAW_PATH)[messageId] ?? null;
 }
 
 function saveRotationMsgId(channelId, messageId) {
@@ -127,8 +116,6 @@ function clearRotationState(channelId) {
 }
 
 module.exports = {
-  saveRotationRaw,
-  loadRotationRaw,
   saveRotationMsgId,
   loadRotationMsgId,
   clearRotationMsgId,

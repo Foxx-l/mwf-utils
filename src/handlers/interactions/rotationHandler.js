@@ -16,7 +16,6 @@ const { createErrorEmbed, createSuccessEmbed } = require('../../utils/embeds');
 const { sendLog } = require('./shared');
 const { THUMBNAIL_URL } = require('../../config/constants');
 const {
-  saveRotationRaw,
   saveRotationMsgId,
   loadRotationMsgId,
   saveRotationState,
@@ -110,8 +109,6 @@ function persistState(channelId, state) {
   saveRotationState(channelId, state);
   if (state.messageId) {
     saveRotationMsgId(channelId, state.messageId);
-    // Keep legacy files populated for safe rollback to an older bot release.
-    saveRotationRaw(state.messageId, data);
   }
 }
 
