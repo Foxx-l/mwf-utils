@@ -19,6 +19,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  MessageFlags,
 } = require('discord.js');
 
 const TTL_MS = 10 * 60 * 1000; // 10 min
@@ -109,7 +110,7 @@ async function beginApplyInteraction(interaction, kind, reopenLabel) {
     restorePendingEdit(kind, nonce, pending);
     await interaction.reply({
       content: '⛔ Only the admin who started this edit can Apply it.',
-      flags: 64,
+      flags: MessageFlags.Ephemeral,
     });
     return null;
   }
@@ -127,7 +128,7 @@ async function handleCancelInteraction(interaction, kind, discardedMessage) {
     restorePendingEdit(kind, nonce, pending);
     return interaction.reply({
       content: '⛔ Only the admin who started this edit can cancel it.',
-      flags: 64,
+      flags: MessageFlags.Ephemeral,
     });
   }
   return interaction.update({

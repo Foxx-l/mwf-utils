@@ -8,6 +8,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  MessageFlags,
 } = require('discord.js');
 const logger = require('../../utils/logger');
 const { COLORS } = require('../../config/theme');
@@ -236,12 +237,12 @@ function addModalInput(modal, customId, label, style, value, maxLength) {
 async function handleAdminEditRotation(interaction) {
   const channelId = getMapRotationChannelId();
   if (!channelId) {
-    return interaction.reply({ embeds: [createErrorEmbed('Config Error', 'MAP_ROTATION_CHANNEL is not set in .env.')], flags: 64 });
+    return interaction.reply({ embeds: [createErrorEmbed('Config Error', 'MAP_ROTATION_CHANNEL is not set in .env.')], flags: MessageFlags.Ephemeral });
   }
 
   const state = validStoredState(channelId);
   if (!state) {
-    await interaction.deferReply({ flags: 64 });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const recovered = await loadOrRecoverRotation(interaction.client, channelId);
     if (!recovered.state) {
       return interaction.editReply({ embeds: [createErrorEmbed('Not Found', 'No Map Rotation message was found. Post one first.')] });
@@ -264,7 +265,7 @@ async function handleAdminEditRotation(interaction) {
 }
 
 async function handleRotationModalSubmit(interaction) {
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const [, channelId, , revisionText] = interaction.customId.split(':');
   const expectedRevision = Number(revisionText);
   const current = validStoredState(channelId);
@@ -349,7 +350,7 @@ async function handleRotationCancelButton(interaction) {
 }
 
 async function handleAdminPostRotation(interaction) {
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const result = await ensureRotationPosted(interaction.client);
   if (!result.ok) return interaction.editReply({ embeds: [createErrorEmbed(result.busy ? 'Busy' : 'Post failed', result.reason)] });
   await sendLog(interaction.client, new EmbedBuilder()
@@ -415,7 +416,7 @@ async function handleAdminAdvanceConfirm(interaction) {
       new ButtonBuilder().setCustomId('rotation_advance_confirm').setLabel('Confirm Advance').setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId('rotation_action_cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
     )],
-    flags: 64,
+    flags: MessageFlags.Ephemeral,
   });
 }
 
@@ -427,7 +428,7 @@ async function handleAdminResetConfirm(interaction) {
       new ButtonBuilder().setCustomId('rotation_reset_confirm').setLabel('Reset to Current Month').setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId('rotation_action_cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary)
     )],
-    flags: 64,
+    flags: MessageFlags.Ephemeral,
   });
 }
 
@@ -452,7 +453,7 @@ async function handleAdminResetRotation(interaction) {
 }
 
 async function handleAdminUndoRotation(interaction) {
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const result = await withRotationLock(async () => {
     const channelId = getMapRotationChannelId();
     if (!channelId) return { ok: false, reason: 'MAP_ROTATION_CHANNEL not set' };
@@ -468,7 +469,7 @@ async function handleAdminAdvanceRotation(interaction) {
   if (interaction.isButton?.()) {
     await interaction.update({ content: '⏳ Advancing rotation…', embeds: [], components: [] });
   } else {
-    await interaction.deferReply({ flags: 64 });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   }
   const result = await advanceRotationNow(interaction.client);
   if (!result.ok) return interaction.editReply({ embeds: [createErrorEmbed(result.busy ? 'Busy' : 'Advance failed', result.reason)] });

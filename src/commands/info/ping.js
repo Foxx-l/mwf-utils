@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -9,7 +9,7 @@ module.exports = {
     const sent = await interaction.reply({
       content: '🏓 Pinging...',
       fetchReply: true,
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
 
     const latency = sent.createdTimestamp - interaction.createdTimestamp;

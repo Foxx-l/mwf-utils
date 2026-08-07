@@ -6,7 +6,8 @@ const {
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  MessageFlags
 } = require('discord.js');
 const logger = require('../../utils/logger');
 const { COLORS } = require('../../config/theme');
@@ -28,7 +29,7 @@ async function _enforceAdminCooldown(interaction, action) {
   if (remaining > 0) {
     await interaction.reply({
       embeds: [createErrorEmbed('Slow down', `Please wait **${remaining}s** before repeating *${action}*.`)],
-      flags: 64,
+      flags: MessageFlags.Ephemeral,
     });
     return false;
   }
@@ -55,7 +56,7 @@ async function handleAdminResetConfirm(interaction) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  return interaction.reply({ embeds: [confirmEmbed], components: [row], flags: 64 });
+  return interaction.reply({ embeds: [confirmEmbed], components: [row], flags: MessageFlags.Ephemeral });
 }
 
 async function handleAdminResetCancel(interaction) {
@@ -127,7 +128,7 @@ async function handleAdminReset(interaction) {
  * unrelated embeds (server details, lineup, etc.) by mistake.
  */
 async function handleAdminReload(interaction) {
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const channelId = process.env.FACTION_CHANNEL;
   if (!channelId) {
@@ -189,7 +190,7 @@ async function handleAdminClearLogsConfirm(interaction) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  return interaction.reply({ embeds: [confirmEmbed], components: [row], flags: 64 });
+  return interaction.reply({ embeds: [confirmEmbed], components: [row], flags: MessageFlags.Ephemeral });
 }
 
 async function handleAdminClearLogsCancel(interaction) {
@@ -250,7 +251,7 @@ async function handleAdminHealthcheck(interaction) {
     ));
   }
 
-  return interaction.followUp({ embeds: [embed], components, flags: 64 });
+  return interaction.followUp({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
 }
 
 function _buildHealthcheckEmbed(passed, total, issues, notes) {
@@ -285,7 +286,7 @@ function _buildHealthcheckEmbed(passed, total, issues, notes) {
 // spelled out so they don't have to hunt for it.
 
 async function handleAdminHealthcheckAutofix(interaction) {
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const guildId = process.env.GUILD_ID;
   const { issues, notes = [] } = await runHealthcheck(interaction.client, guildId);

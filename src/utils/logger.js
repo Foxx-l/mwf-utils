@@ -50,21 +50,27 @@ function safe(message) {
   return redactSecrets(String(message));
 }
 
+// ISO-8601 UTC timestamp so `npm start` / `docker compose logs` output is
+// correlatable even without PM2's `time: true` wrapper.
+function stamp() {
+  return new Date().toISOString();
+}
+
 class Logger {
   info(message) {
-    console.log(`${colors.blue}[INFO]${colors.reset} ${safe(message)}`);
+    console.log(`${colors.blue}[INFO]${colors.reset} ${stamp()} ${safe(message)}`);
   }
 
   success(message) {
-    console.log(`${colors.green}[✓]${colors.reset} ${safe(message)}`);
+    console.log(`${colors.green}[✓]${colors.reset} ${stamp()} ${safe(message)}`);
   }
 
   warn(message) {
-    console.log(`${colors.yellow}[⚠]${colors.reset} ${safe(message)}`);
+    console.log(`${colors.yellow}[⚠]${colors.reset} ${stamp()} ${safe(message)}`);
   }
 
   error(message, error = null) {
-    console.error(`${colors.red}[✗]${colors.reset} ${safe(message)}`);
+    console.error(`${colors.red}[✗]${colors.reset} ${stamp()} ${safe(message)}`);
     if (error) {
       // Error objects may carry secrets in message/stack. Print a redacted
       // view without mutating the caller's Error so surrounding code that
@@ -81,7 +87,7 @@ class Logger {
 
   debug(message) {
     if (process.env.LOG_LEVEL === 'debug') {
-      console.log(`${colors.cyan}[DEBUG]${colors.reset} ${safe(message)}`);
+      console.log(`${colors.cyan}[DEBUG]${colors.reset} ${stamp()} ${safe(message)}`);
     }
   }
 }

@@ -5,7 +5,7 @@
  * Selecting a new faction removes any other faction role the user holds.
  */
 
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, MessageFlags } = require('discord.js');
 const logger = require('../../utils/logger');
 const { createErrorEmbed } = require('../../utils/embeds');
 const { sendLog } = require('./shared');
@@ -65,7 +65,7 @@ async function handleFactionSelection(interaction, factionKey) {
   if (!faction) {
     return interaction.reply({
       embeds: [createErrorEmbed('Unknown Faction', `Unknown faction: \`${factionKey}\`.`)],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
   }
 
@@ -73,7 +73,7 @@ async function handleFactionSelection(interaction, factionKey) {
   if (!selectedRoleId) {
     return interaction.reply({
       embeds: [createErrorEmbed('Config Error', `Faction role is not configured. Ask an admin to set \`${faction.envVar}\`.`)],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
   }
 
@@ -81,7 +81,7 @@ async function handleFactionSelection(interaction, factionKey) {
   const factionLabel = `${faction.fallbackEmoji} ${faction.label}`;
 
   if (member.roles.cache.has(selectedRoleId)) {
-    return interaction.reply({ content: `⚠️ You are already on **${factionLabel}**!`, flags: 64 });
+    return interaction.reply({ content: `⚠️ You are already on **${factionLabel}**!`, flags: MessageFlags.Ephemeral });
   }
 
   // Anti-spam: enforce per-user cooldown between faction swaps. The cooldown
@@ -98,7 +98,7 @@ async function handleFactionSelection(interaction, factionKey) {
       const waitSec = cdSec - elapsedSec;
       return interaction.reply({
         content: `⏳ Slow down! You can swap factions again in **${waitSec}s**.`,
-        flags: 64
+        flags: MessageFlags.Ephemeral
       });
     }
   }
@@ -106,7 +106,7 @@ async function handleFactionSelection(interaction, factionKey) {
   if (swapInProgress.has(userId)) {
     return interaction.reply({
       content: '⏳ A faction swap is already in progress for you. Try again in a moment.',
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
   }
   swapInProgress.add(userId);
@@ -119,7 +119,7 @@ async function handleFactionSelection(interaction, factionKey) {
   // be locked out until the bot restarts.
   let slotAcquired = false;
   try {
-    await interaction.deferReply({ flags: 64 });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await acquireSlot();
     slotAcquired = true;
 

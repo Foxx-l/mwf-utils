@@ -5,7 +5,7 @@
  * purely responsible for dispatching to the right handler.
  */
 
-const { PermissionFlagsBits } = require('discord.js');
+const { PermissionFlagsBits, MessageFlags } = require('discord.js');
 const logger = require('../utils/logger');
 const { createErrorEmbed } = require('../utils/embeds');
 const { saveLastAction }   = require('../utils/lastActionStore');
@@ -93,7 +93,7 @@ function guildAllowed(guildId) {
 }
 
 async function rejectUnlistedGuild(interaction) {
-  const reply = { content: '⛔ This bot is not available on this server.', flags: 64 };
+  const reply = { content: '⛔ This bot is not available on this server.', flags: MessageFlags.Ephemeral };
   try {
     if (interaction.isRepliable?.()) {
       await interaction.reply(reply);
@@ -123,7 +123,7 @@ module.exports = {
         await command.execute(interaction);
       } catch (error) {
         logger.error(`Error executing /${interaction.commandName}:`, error);
-        const reply = { content: '❌ An error occurred.', flags: 64 };
+        const reply = { content: '❌ An error occurred.', flags: MessageFlags.Ephemeral };
         if (interaction.replied || interaction.deferred) {
           await interaction.followUp(reply).catch(() => {});
         } else {
@@ -155,7 +155,7 @@ module.exports = {
         }
       } catch (error) {
         logger.error('Error handling modal submit:', error);
-        const reply = { content: '❌ An error occurred.', flags: 64 };
+        const reply = { content: '❌ An error occurred.', flags: MessageFlags.Ephemeral };
         if (interaction.replied || interaction.deferred) {
           await interaction.followUp(reply).catch(() => {});
         } else {
@@ -172,7 +172,7 @@ module.exports = {
           if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return interaction.reply({
               embeds: [createErrorEmbed('Permission Denied', 'Only administrators can use these controls.')],
-              flags: 64
+              flags: MessageFlags.Ephemeral
             });
           }
           const value = interaction.values[0] || '';
@@ -249,7 +249,7 @@ module.exports = {
         }
       } catch (error) {
         logger.error('Error handling select menu:', error);
-        const reply = { content: '❌ An error occurred.', flags: 64 };
+        const reply = { content: '❌ An error occurred.', flags: MessageFlags.Ephemeral };
         if (interaction.replied || interaction.deferred) {
           await interaction.followUp(reply).catch(() => {});
         } else {
@@ -282,7 +282,7 @@ module.exports = {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
           return interaction.reply({
             embeds: [createErrorEmbed('Permission Denied', 'Only administrators can use these controls.')],
-            flags: 64
+            flags: MessageFlags.Ephemeral
           });
         }
 
@@ -308,7 +308,7 @@ module.exports = {
       // ── Confirmed rotation actions ────────────────────────────────────────
       if (['rotation_advance_confirm', 'rotation_reset_confirm', 'rotation_action_cancel'].includes(customId)) {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-          return interaction.reply({ embeds: [createErrorEmbed('Permission Denied', 'Administrator permission is required.')], flags: 64 });
+          return interaction.reply({ embeds: [createErrorEmbed('Permission Denied', 'Administrator permission is required.')], flags: MessageFlags.Ephemeral });
         }
         if (customId === 'rotation_action_cancel') return handleRotationActionCancel(interaction);
         if (customId === 'rotation_advance_confirm') {
@@ -361,7 +361,7 @@ module.exports = {
 
     } catch (error) {
       logger.error('Error handling button interaction:', error);
-      const reply = { content: '❌ An error occurred.', flags: 64 };
+      const reply = { content: '❌ An error occurred.', flags: MessageFlags.Ephemeral };
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp(reply).catch(() => {});
       } else {

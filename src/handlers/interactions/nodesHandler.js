@@ -7,7 +7,8 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  ActionRowBuilder
+  ActionRowBuilder,
+  MessageFlags
 } = require('discord.js');
 const logger = require('../../utils/logger');
 const { COLORS } = require('../../config/theme');
@@ -98,7 +99,7 @@ function showNodesModal(interaction, fields) {
 // buttons is shown. The actual message edits run only when Apply is clicked.
 
 async function handleNodesModalSubmit(interaction) {
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const fields = [
     { name: 'North / West HQ', value: interaction.fields.getTextInputValue('nodes_nw')   || '—' },
@@ -192,7 +193,7 @@ async function handleNodesCancelButton(interaction) {
 // ── Admin: Post Nodes (panel button) ─────────────────────────────────────────
 
 async function handleAdminPostNodes(interaction) {
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const channelIds = getNodesChannelIds();
 
@@ -250,7 +251,7 @@ async function handleAdminEditNodes(interaction) {
   if (!channelIds.length) {
     return interaction.reply({
       embeds: [createErrorEmbed('Config Error', 'NODES_CHANNELS is not set in .env.')],
-      flags: 64
+      flags: MessageFlags.Ephemeral
     });
   }
 
@@ -259,7 +260,7 @@ async function handleAdminEditNodes(interaction) {
     return showNodesModal(interaction, cachedFields);
   }
 
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   let recoveredFields = null;
   for (const channelId of channelIds) {
