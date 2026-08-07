@@ -44,47 +44,6 @@ to the format `[TAG] Username`.
 
 ---
 
-### 2. Squad Signup System
-**Priority:** Medium  
-**Complexity:** High
-
-An interactive embed allowing players to sign up for specific squad roles in an upcoming match.
-Inspired by existing tools like Comp.gg — but native to Discord.
-
-**Signup Categories:**
-| Category    | Icon | Notes                          |
-|-------------|------|--------------------------------|
-| Commander   | 🎖️  | Limited slots (e.g. 1–2)      |
-| Infantry    | 🗣️  | Largest category               |
-| Tank        | 🛡️  | Medium slots                   |
-| Recon       | 🔭  | Limited slots                  |
-| Artillery   | 💥  | Limited slots                  |
-| Bench       | 🪑  | Reserve / overflow              |
-
-**Embed displays:**
-- Total signups vs. capacity (e.g. `20 / 49`)
-- Match date and time with Discord timestamps
-- Countdown until match start (e.g. `in 7 days`)
-- Per-category player list with slot numbers
-- Slot numbers assigned in registration order
-
-**Commands:**
-- `/signup create` — Admin creates a new signup embed (sets date, time, capacity per category)
-- `/signup close` — Admin closes signups (no more entries accepted)
-- `/signup reset` — Admin clears all signups
-
-**Buttons (on the embed):**
-- One button per category — clicking opens a confirmation or position-select modal
-- `Bench` button for overflow
-- `⚙️` Settings button (admin only) — edit match details or manage slots
-
-**Additional:**
-- A player can only be signed up in one category at a time
-- Switching category removes the player from their previous slot
-- All signup data persists in a lightweight JSON file or SQLite (no external DB required)
-
----
-
 ## 💡 Future Ideas (Backlog)
 
 - `/history` — admin command to view past weekly reset logs
