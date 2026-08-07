@@ -1,6 +1,6 @@
 {
-  "name": "faction-bot",
-  "version": "2.2.0",
+  "name": "mwf-utils",
+  "version": "2.3.0",
   "description": "Discord faction selection bot",
   "main": "src/index.js",
   "scripts": {
@@ -21,6 +21,6 @@
     "nodemon": "^3.0.2"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   }
 }
