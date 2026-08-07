@@ -4,8 +4,45 @@ const logger = require('./logger');
 const { COLORS } = require('../config/theme');
 const { getAllFactionRoleIds } = require('../config/factions');
 const { maybeAutoAdvanceRotation } = require('../handlers/interactions/rotationHandler');
+const { warsawDateParts, warsawToUnix } = require('./warsawTime');
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * Parses RESET_DAY (0=Sun … 6=Sat, default 3) and RESET_HOUR (default 22)
+ * from .env. Returns `{ day, hour }`, or `null` when the config is invalid.
+ * Single source of truth — the cron scheduler and the panel's "next reset"
+ * display both read from here so they can never drift apart.
+ */
+function getResetSchedule() {
+  const day  = Number.parseInt(process.env.RESET_DAY  ?? '3', 10);
+  const hour = Number.parseInt(process.env.RESET_HOUR ?? '22', 10);
+  if (!Number.isInteger(day) || day < 0 || day > 6) return null;
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return null;
+  return { day, hour };
+}
+
+/**
+ * Unix seconds of the next scheduled reset strictly after `now`, evaluated
+ * on the Europe/Warsaw clock. Returns `null` when the schedule is invalid.
+ */
+function getNextResetTime(now = new Date()) {
+  const schedule = getResetSchedule();
+  if (!schedule) return null;
+
+  const parts = warsawDateParts(now);
+  let daysAhead = (schedule.day - parts.weekday + 7) % 7;
+  const nowMinutes = parts.hour * 60 + parts.minute;
+  const resetMinutes = schedule.hour * 60;
+  // Exactly at reset time we still point at "today" (it is firing now);
+  // any time past it rolls to the next matching weekday.
+  if (daysAhead === 0 && nowMinutes > resetMinutes) daysAhead = 7;
+
+  // Date.UTC normalizes day overflow (e.g. day 32 -> next month) for us.
+  const target = new Date(Date.UTC(parts.year, parts.month, parts.day + daysAhead));
+  const t = warsawDateParts(target);
+  return warsawToUnix(t.year, t.month, t.day, schedule.hour, 0);
+}
 
 /**
  * Starts the weekly faction role reset scheduler.
@@ -13,13 +50,12 @@ const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
  * Configurable via RESET_DAY (0=Sun, 3=Wed) and RESET_HOUR in .env
  */
 function startScheduler(client) {
-  const day = Number.parseInt(process.env.RESET_DAY ?? '3', 10);
-  const hour = Number.parseInt(process.env.RESET_HOUR ?? '22', 10);
-
-  if (!Number.isInteger(day) || day < 0 || day > 6 || !Number.isInteger(hour) || hour < 0 || hour > 23) {
+  const schedule = getResetSchedule();
+  if (!schedule) {
     logger.error(`Invalid reset schedule: RESET_DAY=${process.env.RESET_DAY ?? '3'}, RESET_HOUR=${process.env.RESET_HOUR ?? '22'}. Scheduler not started.`);
     return;
   }
+  const { day, hour } = schedule;
 
   const expression = `0 ${hour} * * ${day}`;
   if (!cron.validate(expression)) {
@@ -74,8 +110,18 @@ async function resetFactionRoles(client) {
   }
 
   const factionRoleIds = getAllFactionRoleIds();
+
+  // Fetch roles first — reading guild.roles.cache alone can miss roles on a
+  // cold cache, which would silently skip them during the reset.
+  let roleCache = guild.roles.cache;
+  try {
+    roleCache = await guild.roles.fetch();
+  } catch (err) {
+    logger.warn(`Scheduler: could not refresh role cache, falling back to cached roles: ${err.message}`);
+  }
+
   const factionRoles = factionRoleIds
-    .map(id => guild.roles.cache.get(id))
+    .map(id => roleCache.get(id))
     .filter(Boolean);
 
   if (!factionRoles.length) {
@@ -139,4 +185,4 @@ async function resetFactionRoles(client) {
   }
 }
 
-module.exports = { startScheduler, startRotationScheduler };
+module.exports = { startScheduler, startRotationScheduler, getResetSchedule, getNextResetTime };

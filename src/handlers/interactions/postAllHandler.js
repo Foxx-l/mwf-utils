@@ -10,7 +10,7 @@
  * so admins know to run /lineup manually.
  */
 
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, MessageFlags } = require('discord.js');
 
 const logger = require('../../utils/logger');
 const { COLORS } = require('../../config/theme');
@@ -18,30 +18,12 @@ const { createFactionEmbed } = require('../../utils/embeds');
 const { createFactionButtons } = require('../../utils/buttons');
 const { sendLog, bulkDeleteFiltered } = require('./shared');
 const { THUMBNAIL_URL, DEFAULT_NODES } = require('../../config/constants');
+const { getServerDefaults } = require('../../config/runtime');
 const { saveServerData } = require('../../utils/lineupStore');
 const { saveNodesData }  = require('../../utils/nodesStore');
 const { ensureRotationPosted } = require('./rotationHandler');
 
 const { probePanelState } = require('../../commands/admin/panel');
-
-function getServerDefaults(server) {
-  if (server === 'S1') {
-    return {
-      defaultName: process.env.SERVER_S1_NAME     || process.env.SERVER_NAME     || 'HCIA EU 1',
-      defaultPass: process.env.SERVER_S1_PASSWORD || process.env.SERVER_PASSWORD || 'MWFTIME'
-    };
-  }
-  if (server === 'S2') {
-    return {
-      defaultName: process.env.SERVER_S2_NAME     || process.env.SERVER_NAME     || 'HCIA EU 2',
-      defaultPass: process.env.SERVER_S2_PASSWORD || process.env.SERVER_PASSWORD || 'MWFTIME'
-    };
-  }
-  return {
-    defaultName: process.env.SERVER_NAME     || 'HCIA EU 1',
-    defaultPass: process.env.SERVER_PASSWORD || 'MWFTIME'
-  };
-}
 
 // ── Cores (each returns { posted: true|false, reason?: string }) ─────────────
 
@@ -120,7 +102,7 @@ async function postNodesCore(client, channelIds = null) {
 // ── Entry point ──────────────────────────────────────────────────────────────
 
 async function handleAdminPostAllMissing(interaction) {
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const state = await probePanelState(interaction.client);
 

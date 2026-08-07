@@ -1,4 +1,8 @@
 const { getRotationEventTime } = require('../config/runtime');
+const {
+  warsawDateParts,
+  warsawToUnix: warsawToUnixHMS,
+} = require('./warsawTime');
 
 const MAP_CYCLE = Object.freeze(['Utah', 'SMDM', 'Omaha', 'Carentan', 'SME']);
 const MONTH_NAMES = Object.freeze([
@@ -7,16 +11,6 @@ const MONTH_NAMES = Object.freeze([
 ]);
 const STATE_VERSION = 1;
 const MAX_CATCH_UP_MONTHS = 24;
-
-function warsawDateParts(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/Warsaw',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  }).formatToParts(date);
-  const get = type => Number(parts.find(p => p.type === type)?.value);
-  return { year: get('year'), month: get('month') - 1, day: get('day'), hour: get('hour'), minute: get('minute') };
-}
 
 function monthKey(year, month) {
   return year * 12 + month;
@@ -43,13 +37,9 @@ function validCalendarDate(year, month, day) {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day;
 }
 
+/** Unix seconds for a Warsaw-local date at a 24-hour `HH:MM` time string. */
 function warsawToUnix(year, month, day, time = getRotationEventTime()) {
-  const [hour, minute] = time.split(':').map(Number);
-  const probe = new Date(Date.UTC(year, month, day, hour, minute));
-  const utcMs = new Date(probe.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
-  const warsawMs = new Date(probe.toLocaleString('en-US', { timeZone: 'Europe/Warsaw' })).getTime();
-  const offsetMinutes = Math.round((warsawMs - utcMs) / 60_000);
-  return Math.floor(Date.UTC(year, month, day, hour, minute - offsetMinutes) / 1000);
+  return warsawToUnixHMS(year, month, day, ...(time.split(':').map(Number)));
 }
 
 function isoDate(year, month, day) {

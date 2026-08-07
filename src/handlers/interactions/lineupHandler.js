@@ -13,7 +13,8 @@ const {
   TextInputStyle,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  MessageFlags
 } = require('discord.js');
 const logger = require('../../utils/logger');
 const { COLORS } = require('../../config/theme');
@@ -21,6 +22,7 @@ const { createErrorEmbed, createSuccessEmbed } = require('../../utils/embeds');
 const { THUMBNAIL_URL } = require('../../config/constants');
 const { sendLog, findLastBotMessage } = require('./shared');
 const { saveLineupData, loadLineupData, saveServerData, loadServerData } = require('../../utils/lineupStore');
+const { getServerDefaults } = require('../../config/runtime');
 const {
   storePendingEdit,
   buildPreviewButtons,
@@ -30,25 +32,6 @@ const {
 
 const CAPTION_KIND = 'lineup_caption';
 const SERVER_KIND  = 'lineup_server';
-
-function getServerDefaults(server) {
-  if (server === 'S1') {
-    return {
-      defaultName: process.env.SERVER_S1_NAME     || process.env.SERVER_NAME     || 'HCIA EU 1',
-      defaultPass: process.env.SERVER_S1_PASSWORD || process.env.SERVER_PASSWORD || 'MWFTIME'
-    };
-  }
-  if (server === 'S2') {
-    return {
-      defaultName: process.env.SERVER_S2_NAME     || process.env.SERVER_NAME     || 'HCIA EU 2',
-      defaultPass: process.env.SERVER_S2_PASSWORD || process.env.SERVER_PASSWORD || 'MWFTIME'
-    };
-  }
-  return {
-    defaultName: process.env.SERVER_NAME     || 'HCIA EU 1',
-    defaultPass: process.env.SERVER_PASSWORD || 'MWFTIME'
-  };
-}
 
 // ── Edit Caption Button (from /lineup ephemeral reply) ────────────────────────
 
@@ -99,7 +82,7 @@ async function handleLineupCaptionSubmit(interaction) {
   const server     = parts[3] || null; // S1 | S2 | null (legacy)
   const newCaption = interaction.fields.getTextInputValue('caption_text');
 
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   let imageUrl = null;
   let messageId = modalMessageId;
@@ -268,7 +251,7 @@ async function handleServerModalSubmit(interaction) {
   const newName   = interaction.fields.getTextInputValue('server_name');
   const newPass   = interaction.fields.getTextInputValue('server_password');
 
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const previewEmbed = buildServerDetailsEmbed(server, newName, newPass);
 
@@ -307,7 +290,7 @@ async function handleServerApplyButton(interaction) {
     await msg.edit({ embeds: [updated] });
     saveServerData(channelId, messageId, newName, newPass, server);
 
-    logger.info(`${interaction.user.tag} updated ${server || 'legacy'} server details: ${newName} / ${newPass}`);
+    logger.info(`${interaction.user.tag} updated ${server || 'legacy'} server details: ${newName}`);
     await interaction.editReply({
       content: `\u2705 Server details updated${server ? ` for **${server}**` : ''}!\n**Server Name:** ${newName}\n**Password:** ${newPass}`,
       embeds: [],
@@ -332,7 +315,7 @@ async function handleServerCancelButton(interaction) {
 // ── Admin: Post Server Details (panel button) ─────────────────────────────────
 
 async function handleAdminPostServer(interaction, serverOverride) {
-  await interaction.deferReply({ flags: 64 });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   const server    = serverOverride || interaction.customId.split(':')[1] || null; // S1 | S2 | null
   const channelId = process.env.SERVER_DETAILS_CHANNEL;
@@ -417,7 +400,7 @@ async function handleAdminEditCaption(interaction, serverOverride) {
     if (!ch) {
       return interaction.reply({
         embeds: [createErrorEmbed('Config Error', 'LINEUP_CHANNEL not found. Check your .env.')],
-        flags: 64
+        flags: MessageFlags.Ephemeral
       });
     }
 
@@ -425,7 +408,7 @@ async function handleAdminEditCaption(interaction, serverOverride) {
     if (!msg) {
       return interaction.reply({
         content: `\u274c No lineup message found${server ? ` for ${server}` : ''}. Post one with \`/lineup\` first.`,
-        flags: 64
+        flags: MessageFlags.Ephemeral
       });
     }
 
@@ -469,7 +452,7 @@ async function handleAdminEditServer(interaction, serverOverride) {
     if (!ch) {
       return interaction.reply({
         embeds: [createErrorEmbed('Config Error', 'SERVER_DETAILS_CHANNEL not found. Check your .env.')],
-        flags: 64
+        flags: MessageFlags.Ephemeral
       });
     }
 
@@ -478,7 +461,7 @@ async function handleAdminEditServer(interaction, serverOverride) {
     if (!msg) {
       return interaction.reply({
         content: `\u274c No Server Details message found${server ? ` for ${server}` : ''}. Post one first using **Post Server Details${server ? ` ${server}` : ''}**.`,
-        flags: 64
+        flags: MessageFlags.Ephemeral
       });
     }
 
