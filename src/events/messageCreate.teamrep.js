@@ -1,4 +1,4 @@
-const logger = require('../../utils/logger');
+const logger = require('../utils/logger');
 const { EmbedBuilder } = require('discord.js');
 
 const MAX_RETRIES = Number(process.env.TEAM_REP_MAX_RETRIES) || 3;
