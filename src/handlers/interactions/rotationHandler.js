@@ -36,7 +36,7 @@ const {
 
 const PENDING_KIND = 'rotation';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────
 
 function getMapRotationChannelId() {
   return process.env.MAP_ROTATION_CHANNEL || null;
@@ -373,10 +373,13 @@ async function handleAdminEditRotation(interaction) {
   let storedMsgId = loadRotationMsgId(channelId);
 
   if (!storedMsgId) {
+    // Try to locate an existing rotation message; if found, persist its id and fall
+    // through to the modal flow so admins can edit immediately instead of the
+    // two-step "click again" dance.
     await interaction.deferReply({ flags: 64 });
     const ch = await interaction.client.channels.fetch(channelId).catch(() => null);
     if (ch) {
-      const found = await findRotationMessage(ch);
+      const found = await findRotationMessage(ch).catch(() => null);
       if (found) {
         storedMsgId = found.id;
         saveRotationMsgId(channelId, found.id);
@@ -391,14 +394,15 @@ async function handleAdminEditRotation(interaction) {
         }
       }
     }
+
     if (!storedMsgId) {
       return interaction.editReply({
         content: '❌ No Map Rotation message found. Post one first using **Post Rotation**.',
       });
     }
-    return interaction.editReply({
-      embeds: [createSuccessEmbed('Ready', 'Message found! Please click **Edit Rotation** again to open the editor.')]
-    });
+
+    // If we found a storedMsgId we intentionally do NOT return here — fall
+    // through so the modal is built and shown immediately.
   }
 
   const data = toEditableForm(loadRotationRaw(storedMsgId)) ?? getDefaultRotationData();
