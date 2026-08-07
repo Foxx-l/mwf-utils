@@ -32,6 +32,10 @@ details, map rotation, and node info, all driven from a single admin panel.
   with `/tag remove`. Admins manage the list and other members' tags with
   `/tags`. If a role named exactly like the tag exists it is granted, and any
   other tag role is removed.
+- **Mid cap poll** — a native Discord poll in `MIDCAP_CHANNEL` for the next
+  match's mid cap. The options are the mid caps of whatever map the rotation has
+  scheduled, and the poll closes at kick-off. Who may vote is a channel
+  permission, not a bot rule.
 - **Audit logging** — every admin action is logged to `ADMIN_LOG_CHANNEL`;
   the panel footer shows the most recent action.
 
@@ -106,6 +110,7 @@ remaining values enable their corresponding features.
 | `TEAM_REP_ROLE_ID` | Role granted when a Team Rep request is approved (optional feature) |
 | `TEAM_REP_PING_ROLE` | Role pinged on every new Team Rep request (optional feature) |
 | `TAG_CHANNEL` | Where `/tags post` publishes the clan tag info embed (optional — defaults to the channel the command is run in) |
+| `MIDCAP_CHANNEL` | Cap selection channel for the mid cap poll (optional feature — unset disables it entirely) |
 
 Optional: `SERVER_S{1,2}_{NAME,PASSWORD}`, `RESET_DAY`, `RESET_HOUR`,
 `ROTATION_EVENT_TIME`, `FACTION_SWAP_COOLDOWN_SECONDS`,
@@ -137,7 +142,8 @@ posted, ↗ jump link) and five dropdowns:
 - 🖥️ **Server Details** — Post/Edit S1/S2
 - 🗺️ 📍 **Map Rotation & Nodes** — Post/Edit Rotation, Advance (+1 month),
   Post/Edit Nodes
-- 🛠️ **Panel** — Refresh Status, Post All Missing, Healthcheck, Clear Log Channel
+- 🛠️ **Panel** — Refresh Status, Post All Missing, Post Mid Cap Poll,
+  Healthcheck, Clear Log Channel
 
 Destructive actions (Reset Roles, Clear Log Channel) require ephemeral
 confirmation and are rate-limited per user.
@@ -164,6 +170,36 @@ tags removed with `/tags remove` stay removed.
   nickname until they run `/tag remove`.
 - `/tags post` publishes the public info embed to `TAG_CHANNEL`, or to the
   current channel when that variable is unset.
+
+## Mid cap poll
+
+Set `MIDCAP_CHANNEL` to the cap selection channel. Without it the feature is
+inert: no poll, no scheduler, no panel row.
+
+It is a **native Discord poll**, so Discord does the counting and enforces one
+vote per member. **Eligibility is channel permissions** — whoever you allow to
+vote in that channel can vote; the bot does not check roles. The bot itself needs
+View Channel, Send Messages and **Send Polls** there (the healthcheck verifies
+all three).
+
+- The question and options come from the rotation: `Mid cap — Omaha (Wed 12 Aug)`
+  with that map's three mid caps from
+  [`src/config/midCaps.js`](./src/config/midCaps.js) (all 20 maps, taken from the
+  MIDWEEK FRONTLINE data sheet). Map names are matched ignoring case, accents and
+  punctuation, so a rotation event spelled "Sainte-Mère-Église" finds `SME`.
+- The poll's duration is set so it **closes at kick-off**, clamped to Discord's
+  1–768 hour range.
+- Polls cannot be edited after posting, only ended — so there is exactly one poll
+  per match, tracked in `data/midcap_polls.json`. Posting is idempotent: the
+  panel action on an existing poll leaves it alone and says so. If the poll was
+  deleted, it is reposted.
+- When a new match's poll goes up, the previous match's poll is ended so its
+  result is final.
+- A daily job at 00:45 Warsaw posts the poll for the next match, so the morning
+  after a match the new poll appears by itself. Nothing is posted on startup —
+  restarting the bot never publishes a poll unasked.
+- Nothing is posted once a match has started (`live`), and nothing is posted for
+  a map with no mid caps configured; both are reported by the healthcheck.
 
 ## Map rotation safety
 
@@ -192,6 +228,9 @@ Do not run `npm start` at the same time as PM2.
 - **Rotation auto-advance** — daily at 00:30 Warsaw; advances at calendar-month
   boundaries and catches up multiple missed months in one operation (maximum
   24 per run), then updates Discord once.
+- **Mid cap poll** — daily at 00:45 Warsaw (after the rotation advance); posts
+  the poll for the next match if it isn't up yet. Skipped when `MIDCAP_CHANNEL`
+  is unset.
 
 ## Development
 

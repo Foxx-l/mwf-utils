@@ -21,6 +21,15 @@ Items are grouped by priority and complexity.
   card in the admin log channel (pinging `TEAM_REP_PING_ROLE`); admins approve
   or reject with buttons. `/teamrep add|remove` for manual management.
   - Tuning env vars: `TEAM_REP_COOLDOWN_MS`, `TEAM_REP_MAX_RETRIES`, `TEAM_REP_BACKOFF_BASE_MS`
+- Mid Cap Poll — native Discord poll in `MIDCAP_CHANNEL` for the next match's mid cap.
+  Options come from the rotation's scheduled map; Discord counts the votes and the poll
+  closes at kick-off. Eligibility is handled by channel permissions, not by the bot.
+  - Mid caps of all 20 maps live in `src/config/midCaps.js` (from the MWF data sheet)
+  - One poll per match, tracked in `data/midcap_polls.json`; the previous poll is ended
+    when a new one is posted
+  - Posted from `/panel`, and daily at 00:45 Warsaw; never on startup
+  - Optional env var: `MIDCAP_CHANNEL` (unset disables the feature). The bot needs
+    **Send Polls** in that channel.
 - Clan Tag Automation — ported from the standalone TagSelector bot. Members set their
   own `[TAG] Name` nickname prefix with `/tag set` (autocompleted) and drop it with
   `/tag remove`; admins manage the list and other members' tags with

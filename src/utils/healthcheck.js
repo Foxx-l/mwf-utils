@@ -22,8 +22,10 @@
  *      commands), plus an informational note about configured tags and any
  *      tag that has no matching role.
  *   6. Optional Team Rep feature: channel + role + hierarchy.
- *   7. Rotation diagnostics.
- *   8. Stale cache self-heal: drop any Lineup/Server/Rotation cache entry
+ *   7. Optional Mid Cap poll: the match it would cover, and whether that map
+ *      has mid caps configured.
+ *   8. Rotation diagnostics.
+ *   9. Stale cache self-heal: drop any Lineup/Server/Rotation cache entry
  *      whose referenced Discord message no longer exists, and report how
  *      many entries were cleared (info-level, not a failure).
  */
@@ -40,6 +42,8 @@ const { monthHeader, MAP_CYCLE, warsawDateParts, validateState } = require('./ro
 const { FACTIONS } = require('../config/factions');
 const { HEALTHCHECK_ENV_VARS: REQUIRED_ENV_VARS } = require('../config/constants');
 const { loadTags } = require('./tagStore');
+const { matchKey, loadPoll } = require('./midCapStore');
+const { describeMidCapPoll } = require('../handlers/interactions/midCapHandler');
 
 const CHANNEL_CHECKS = [
   { envVar: 'FACTION_CHANNEL',        label: 'Faction',        needsManage: false, multiple: false },
@@ -50,6 +54,9 @@ const CHANNEL_CHECKS = [
   { envVar: 'ADMIN_LOG_CHANNEL',      label: 'Admin Logs',     needsManage: true,  multiple: false, optional: true },
   { envVar: 'TEAM_REP_CHANNEL',       label: 'Team Rep',       needsManage: false, multiple: false, optional: true },
   { envVar: 'TAG_CHANNEL',            label: 'Clan Tags',      needsManage: false, multiple: false, optional: true },
+  // Posting a native poll needs Send Polls on top of the usual send perms.
+  { envVar: 'MIDCAP_CHANNEL',         label: 'Mid Cap Poll',   needsManage: false, multiple: false, optional: true,
+    extraPerms: [PermissionFlagsBits.SendPolls] },
 ];
 
 function permName(flag) {
@@ -59,7 +66,7 @@ function permName(flag) {
   return 'Unknown';
 }
 
-function baseChannelPerms(needsManage) {
+function baseChannelPerms(needsManage, extraPerms = []) {
   // ReadMessageHistory is required for channel.messages.fetch(messageId),
   // which every Edit/Apply flow uses to locate the existing embed before
   // updating it. AttachFiles is required for Lineup caption edits that
@@ -72,10 +79,10 @@ function baseChannelPerms(needsManage) {
     PermissionFlagsBits.AttachFiles,
   ];
   if (needsManage) perms.push(PermissionFlagsBits.ManageMessages);
-  return perms;
+  return [...perms, ...extraPerms];
 }
 
-async function checkChannelAccess(client, channelId, needsManage) {
+async function checkChannelAccess(client, channelId, needsManage, extraPerms = []) {
   try {
     const channel = await client.channels.fetch(channelId);
     if (!channel) return { ok: false, reason: 'channel not found' };
@@ -83,7 +90,7 @@ async function checkChannelAccess(client, channelId, needsManage) {
     if (!me) return { ok: true };
     const perms = channel.permissionsFor(me);
     if (!perms) return { ok: false, reason: 'permissions unavailable' };
-    const missing = baseChannelPerms(needsManage).filter(p => !perms.has(p));
+    const missing = baseChannelPerms(needsManage, extraPerms).filter(p => !perms.has(p));
     if (missing.length) {
       return { ok: false, reason: `missing perms: ${missing.map(permName).join(', ')}` };
     }
@@ -188,7 +195,7 @@ async function runHealthcheck(client, guildId) {
     const ids = cfg.multiple
       ? raw.split(',').map(s => s.trim()).filter(Boolean)
       : [raw.trim()];
-    return ids.map(async id => ({ cfg, channelId: id, result: await checkChannelAccess(client, id, cfg.needsManage) }));
+    return ids.map(async id => ({ cfg, channelId: id, result: await checkChannelAccess(client, id, cfg.needsManage, cfg.extraPerms) }));
   }));
   const channelResults = await Promise.all(jobs);
   for (const { cfg, channelId, result } of channelResults) {
@@ -373,7 +380,30 @@ async function runHealthcheck(client, guildId) {
     }
   }
 
-  // 7. Rotation diagnostics (admin-only healthcheck output).
+  // 7. Mid cap poll: report what the next poll would be, and flag a scheduled
+  //    map whose mid caps are missing (nothing to offer as answers).
+  if (process.env.MIDCAP_CHANNEL) {
+    const plan = describeMidCapPoll();
+    const reason = plan.reason ?? 'unknown reason';
+    if (plan.ok && plan.match && plan.caps) {
+      total++;
+      passed++;
+      const posted = loadPoll(matchKey(plan.match.date, plan.match.map)) ? 'posted' : 'not posted yet';
+      notes.push(`mid cap poll: ${plan.match.map} on ${plan.match.date} · ${plan.caps.length} options · ${posted}`);
+    } else if (reason.includes('no mid caps configured')) {
+      total++;
+      issues.push({
+        kind: 'midcap-map',
+        label: 'mid cap poll',
+        detail: reason,
+        hint: 'add the map to src/config/midCaps.js (or fix its spelling in the rotation)',
+      });
+    } else {
+      notes.push(`mid cap poll: ${reason}`);
+    }
+  }
+
+  // 8. Rotation diagnostics (admin-only healthcheck output).
   if (process.env.MAP_ROTATION_CHANNEL) {
     const rotationState = loadRotationState(process.env.MAP_ROTATION_CHANNEL);
     if (rotationState) {
@@ -390,7 +420,7 @@ async function runHealthcheck(client, guildId) {
     }
   }
 
-  // 8. Stale cache self-heal (silent; reported as a note, not a failure)
+  // 9. Stale cache self-heal (silent; reported as a note, not a failure)
   try {
     const cleared = await healStaleCache(client);
     if (cleared > 0) {

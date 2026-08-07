@@ -57,6 +57,11 @@ describe('findRoute', () => {
     const route = router.findRoute(router.SELECT_ROUTES, 'admin_lineup_select', 'edit:S2');
     expect(route).not.toBeNull();
   });
+
+  test('the mid cap panel action is audit-logged', () => {
+    const route = router.findRoute(router.SELECT_ROUTES, 'admin_panel_select', 'midcap');
+    expect(route.track).toBe('Post Mid Cap Poll');
+  });
 });
 
 describe('execute() dispatch', () => {

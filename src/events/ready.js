@@ -4,7 +4,7 @@ const logger = require('../utils/logger');
 const { COLORS } = require('../config/theme');
 const emojiState = require('../utils/emojiState');
 const { createFactionButtons } = require('../utils/buttons');
-const { startScheduler, startRotationScheduler } = require('../utils/scheduler');
+const { startScheduler, startRotationScheduler, startMidCapScheduler } = require('../utils/scheduler');
 const { warmRotationCache } = require('../handlers/interactions/rotationHandler');
 const { sendLog } = require('../handlers/interactions/shared');
 const { ensureDataDir, DATA_DIR } = require('../utils/dataDir');
@@ -25,6 +25,7 @@ module.exports = {
 
     startScheduler(client);
     startRotationScheduler(client);
+    startMidCapScheduler(client);
 
     const dataWritable = ensureDataDir();
     const rotation = await warmRotationCache(client).catch(err => {

@@ -63,6 +63,7 @@ const {
   handleRotationActionCancel,
 } = require('../handlers/interactions/rotationHandler');
 const { handleAdminPostAllMissing } = require('../handlers/interactions/postAllHandler');
+const { handleAdminPostMidCapPoll } = require('../handlers/interactions/midCapHandler');
 const {
   handleTeamRepApprove,
   handleTeamRepReject,
@@ -182,6 +183,7 @@ const SELECT_ROUTES = [
   { id: 'admin_panel_select', value: 'refresh',
     run: async i => { await i.deferUpdate(); return refreshPanelMessage(i); } },
   { id: 'admin_panel_select', value: 'postall',     track: 'Post All Missing', run: handleAdminPostAllMissing },
+  { id: 'admin_panel_select', value: 'midcap',      track: 'Post Mid Cap Poll', run: handleAdminPostMidCapPoll },
   { id: 'admin_panel_select', value: 'healthcheck', run: handleAdminHealthcheck },
   { id: 'admin_panel_select', value: 'clearlogs',   run: handleAdminClearLogsConfirm },
 ];

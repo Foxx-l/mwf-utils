@@ -5,6 +5,7 @@ const logger = require('./logger');
 const { COLORS } = require('../config/theme');
 const { getAllFactionRoleIds } = require('../config/factions');
 const { maybeAutoAdvanceRotation } = require('../handlers/interactions/rotationHandler');
+const { refreshMidCapPoll } = require('../handlers/interactions/midCapHandler');
 const { warsawDateParts, warsawToUnix } = require('./warsawTime');
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -101,6 +102,34 @@ function startRotationScheduler(client) {
   logger.info('Rotation scheduler started — daily check at 00:30 Warsaw time');
 }
 
+/**
+ * Posts the Mid Cap poll for the next match.
+ *
+ * Runs daily at 00:45 Europe/Warsaw — after the 00:30 rotation advance, so a
+ * month rollover is already reflected in the rotation state. Posting is
+ * idempotent, so the job is a no-op on the days the poll is already up: the
+ * morning after a match it puts the next one's poll online by itself.
+ */
+function startMidCapScheduler(client) {
+  if (!process.env.MIDCAP_CHANNEL) {
+    logger.debug('Mid cap scheduler not started — MIDCAP_CHANNEL not set');
+    return;
+  }
+
+  const expression = '45 0 * * *'; // 00:45 daily
+  if (!cron.validate(expression)) {
+    logger.error(`Invalid mid cap cron expression: ${expression}. Mid cap scheduler not started.`);
+    return;
+  }
+
+  cron.schedule(expression, async () => {
+    const result = await refreshMidCapPoll(client);
+    if (!result?.ok) logger.info(`Mid cap poll not posted — ${result?.reason || 'unknown reason'}`);
+  }, { timezone: 'Europe/Warsaw' });
+
+  logger.info('Mid cap scheduler started — daily poll check at 00:45 Warsaw time');
+}
+
 async function resetFactionRoles(client) {
   logger.info('Running scheduled faction role reset...');
 
@@ -186,4 +215,4 @@ async function resetFactionRoles(client) {
   }
 }
 
-module.exports = { startScheduler, startRotationScheduler, getResetSchedule, getNextResetTime };
+module.exports = { startScheduler, startRotationScheduler, startMidCapScheduler, getResetSchedule, getNextResetTime };
