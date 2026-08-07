@@ -3,6 +3,7 @@ const path = require('path');
 const logger = require('../utils/logger');
 const { COLORS } = require('../config/theme');
 const emojiState = require('../utils/emojiState');
+const { createFactionButtons } = require('../utils/buttons');
 const { startScheduler, startRotationScheduler } = require('../utils/scheduler');
 const { warmRotationCache } = require('../handlers/interactions/rotationHandler');
 const { sendLog } = require('../handlers/interactions/shared');
@@ -19,6 +20,7 @@ module.exports = {
     const guild = client.guilds.cache.get(process.env.GUILD_ID);
     if (guild) {
       await ensureEmojis(guild);
+      await refreshFactionButtons(client);
     }
 
     startScheduler(client);
@@ -45,6 +47,31 @@ module.exports = {
     sendLog(client, startupEmbed).catch(() => {});
   }
 };
+
+/**
+ * Buttons are baked into the faction embed when it is posted; if the custom
+ * emojis ever load after that (or were missing at post time), the embed keeps
+ * showing the fallback circles forever. Re-render the button row on every
+ * startup so the embed self-heals.
+ */
+async function refreshFactionButtons(client) {
+  const channelId = process.env.FACTION_CHANNEL;
+  if (!channelId) return;
+  try {
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.isTextBased()) return;
+    const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+    const factionMessage = messages?.find(m =>
+      m.author.id === client.user.id &&
+      m.embeds.some(e => e.title === 'Choose your side!')
+    );
+    if (!factionMessage) return;
+    await factionMessage.edit({ components: createFactionButtons() });
+    logger.info('Faction embed buttons refreshed with current emojis.');
+  } catch (err) {
+    logger.warn(`Could not refresh faction buttons: ${err.message}`);
+  }
+}
 
 async function ensureEmojis(guild) {
   const emojiConfigs = [
