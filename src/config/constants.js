@@ -34,10 +34,16 @@ module.exports = {
   // unrelated repo staying public.
   THUMBNAIL_URL: 'https://raw.githubusercontent.com/jemiel1/mwf-utils/main/assets/MWF.png',
 
-  // Clan tags (ported from the standalone TagSelector bot). Seeded into
-  // data/tags_data.json the first time the store is read; managed with
-  // `/tags add|remove` afterwards.
-  DEFAULT_CLAN_TAGS: ['OKT', 'TLL'],
+  // Clan tags — the list migrated from the retired standalone TagSelector bot.
+  // Only used to seed data/tags_data.json the first time the store is read (or
+  // after the data volume is lost); `/tags add|remove` manages it from then on,
+  // and the file always wins over this list.
+  DEFAULT_CLAN_TAGS: [
+    'OKT', 'TLL', '106', '331', '404', '57TH', '82AD', 'BFTB', 'BNKR', 'BSB',
+    'BxB', 'CIRCLE', 'DD', 'DSS', 'EXD', 'GH', 'HTD', 'KRIEG', 'KSK', 'LCM',
+    'MBYN', 'OMEN', 'OVER', 'PF', 'PZJR', 'RATZ', 'StDb', 'UKLL', 'VLK', 'WAR',
+    'WCB', 'YOKO', 'PBS', 'WTS', '13SNC',
+  ],
 
   // A tag has to leave room for `[TAG] ` plus a usable part of the name
   // inside Discord's 32-character nickname limit.

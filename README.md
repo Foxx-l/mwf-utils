@@ -144,8 +144,11 @@ confirmation and are rate-limited per user.
 
 ## Clan tags
 
-The tag list lives in `data/tags_data.json` (seeded with `OKT` and `TLL` on
-first boot) and feeds the autocomplete on `/tag set`.
+The tag list lives in `data/tags_data.json` and feeds the autocomplete on
+`/tag set`. If that file is missing it is seeded from `DEFAULT_CLAN_TAGS` in
+[`src/config/constants.js`](./src/config/constants.js) — the list migrated from
+the retired standalone TagSelector bot. The file always wins over that list, so
+tags removed with `/tags remove` stay removed.
 
 - Nicknames are rewritten to `[TAG] Name`. An existing `[...]` prefix is
   stripped first, so switching tags never stacks prefixes, and the name is
