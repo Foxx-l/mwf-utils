@@ -30,19 +30,27 @@ function decisionEmbed(title, description, color = COLORS.warning) {
     .setTimestamp();
 }
 
-/** customIds look like `teamrep_approve:<userId>:<originalMessageId>` */
+/** customIds look like `teamrep_approve:<userId>:<originalMessageId>:<originalChannelId>` */
 function parseIds(interaction) {
-  const [, userId, originalId] = interaction.customId.split(':');
-  return { userId, originalId: originalId || null };
+  const [, userId, originalId, channelId] = interaction.customId.split(':');
+  return { userId, originalId: originalId || null, channelId: channelId || null };
 }
 
 /**
+ * The card lives in the log channel while the request lives in the team-rep
+ * channel, so the original message is resolved via the channel id stored in
+ * the customId.
  * @param {import('discord.js').ButtonInteraction} interaction
  * @param {string | null} originalId
+ * @param {string | null} channelId
  */
-async function fetchOriginal(interaction, originalId) {
+async function fetchOriginal(interaction, originalId, channelId) {
   if (!originalId) return null;
-  return await interaction.channel?.messages?.fetch(originalId).catch(() => null) ?? null;
+  const channel = channelId
+    ? await interaction.guild?.channels?.fetch(channelId).catch(() => null)
+    : interaction.channel;
+  if (!channel) return null;
+  return await channel.messages.fetch(originalId).catch(() => null) ?? null;
 }
 
 /**
@@ -73,8 +81,8 @@ async function handleTeamRepApprove(interaction) {
 
   await interaction.deferUpdate();
 
-  const { userId, originalId } = parseIds(interaction);
-  const original = await fetchOriginal(interaction, originalId);
+  const { userId, originalId, channelId } = parseIds(interaction);
+  const original = await fetchOriginal(interaction, originalId, channelId);
   const member = await interaction.guild.members.fetch(userId).catch(() => null);
 
   if (!member) {
@@ -126,10 +134,10 @@ async function handleTeamRepApprove(interaction) {
 async function handleTeamRepReject(interaction) {
   await interaction.deferUpdate();
 
-  const { userId, originalId } = parseIds(interaction);
+  const { userId, originalId, channelId } = parseIds(interaction);
   const member = await interaction.guild.members.fetch(userId).catch(() => null);
 
-  const original = await fetchOriginal(interaction, originalId);
+  const original = await fetchOriginal(interaction, originalId, channelId);
   await clearPendingReaction(original);
   await original?.react('❌').catch(() => {});
 

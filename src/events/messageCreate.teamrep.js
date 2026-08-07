@@ -2,10 +2,11 @@
 /**
  * messageCreate.teamrep.js — Team Rep REQUEST flow.
  *
- * When a member posts in TEAM_REP_CHANNEL the bot no longer assigns the role
- * directly. It posts an approval embed (replying to the request) with
- * Approve / Reject buttons and pings TEAM_REP_PING_ROLE so admins notice.
- * The actual decision lives in handlers/interactions/teamrepHandler.js.
+ * When a member posts in TEAM_REP_CHANNEL the bot posts an approval card with
+ * Approve / Reject buttons — in the ADMIN LOG channel, not the public one —
+ * and pings TEAM_REP_PING_ROLE so admins notice. The public request channel
+ * only ever shows reactions on the member's message (⏳ → ✅ / ❌ / ℹ️).
+ * The decision itself lives in handlers/interactions/teamrepHandler.js.
  */
 
 const logger = require('../utils/logger');
@@ -16,7 +17,6 @@ const {
   ButtonBuilder,
   ButtonStyle,
 } = require('discord.js');
-const { sendLog } = require('../handlers/interactions/shared');
 
 function nonNegativeEnvNumber(name, fallback) {
   const raw = process.env[name];
@@ -97,13 +97,14 @@ async function assignTeamRep(guild, member, roleId) {
 // ── Request flow ──────────────────────────────────────────────────────────────
 
 /**
- * Finds an still-open approval embed for this user among recent channel
- * messages, so a restarted bot (empty in-memory state) doesn't post a
- * duplicate request while one is pending.
- * @param {import('discord.js').TextBasedChannel} channel
+ * Finds a still-open approval card for this user among recent messages of
+ * the channel the cards live in, so a restarted bot (empty in-memory state)
+ * doesn't post a duplicate while one is pending.
+ * @param {import('discord.js').TextBasedChannel | null} channel
  * @param {string} userId
  */
 async function findPendingRequest(channel, userId) {
+  if (!channel) return null;
   const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
   if (!messages) return null;
   const botId = channel.client?.user?.id;
@@ -116,57 +117,60 @@ async function findPendingRequest(channel, userId) {
 }
 
 /**
- * Posts the approval embed (as a reply to the request) and pings the
- * configured role so admins get notified.
+ * Posts the approval card — in the admin log channel when configured (the
+ * normal case) — and pings the configured role so admins get notified.
+ * Falls back to the request channel when no log channel is configured so
+ * the feature never silently dies.
  * @param {import('discord.js').Message} message
  * @param {import('discord.js').GuildMember} member
  */
 async function postApprovalRequest(message, member) {
-  const channel = /** @type {import('discord.js').GuildTextBasedChannel} */ (message.channel);
+  const requestChannel = /** @type {import('discord.js').GuildTextBasedChannel} */ (message.channel);
   const pingRoleId = process.env.TEAM_REP_PING_ROLE;
   const content = pingRoleId ? `<@&${pingRoleId}>` : '';
 
+  const logChannelId = process.env.ADMIN_LOG_CHANNEL;
+  const logChannel = logChannelId
+    ? /** @type {import('discord.js').GuildTextBasedChannel | null} */ (
+        await message.client.channels.fetch(logChannelId).catch(() => null))
+    : null;
+  const inLog = Boolean(logChannel);
+  const channel = logChannel ?? requestChannel;
+
   const embed = new EmbedBuilder()
     .setTitle('🟡 Team Rep Request')
-    .setDescription(`${member} (\`${member.user.tag}\`) wants the **Team Rep** role.\nApprove or reject below.`)
+    .setDescription(
+      `${member} (\`${member.user.tag}\`) wants the **Team Rep** role.\n` +
+      'Approve or reject below.\n\n' +
+      `[Jump to request](https://discord.com/channels/${message.guildId}/${message.channel.id}/${message.id})`
+    )
     .setColor(COLORS.warning)
     .setTimestamp();
 
+  // customId carries user + request message + request channel so the buttons
+  // work even though the card lives in a different channel.
   const row = /** @type {import('discord.js').ActionRowBuilder<import('discord.js').ButtonBuilder>} */ (
     new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`teamrep_approve:${member.id}:${message.id}`)
-      .setLabel('Approve')
-      .setStyle(ButtonStyle.Success)
-      .setEmoji('✅'),
       new ButtonBuilder()
-        .setCustomId(`teamrep_reject:${member.id}:${message.id}`)
+        .setCustomId(`teamrep_approve:${member.id}:${message.id}:${message.channel.id}`)
+        .setLabel('Approve')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji('✅'),
+      new ButtonBuilder()
+        .setCustomId(`teamrep_reject:${member.id}:${message.id}:${message.channel.id}`)
         .setLabel('Reject')
         .setStyle(ButtonStyle.Danger)
         .setEmoji('❌'),
     )
   );
 
-  await channel.send({
-    content,
-    embeds: [embed],
-    components: [row],
-    reply: { messageReference: message.id, failIfNotExists: false },
-  });
+  await channel.send(inLog
+    ? { content, embeds: [embed], components: [row] }
+    : { content, embeds: [embed], components: [row], reply: { messageReference: message.id, failIfNotExists: false } });
 
   await message.react('⏳').catch(() => {});
 
-  sendLog(message.client, new EmbedBuilder()
-    .setTitle('Team Rep Requested')
-    .setColor(COLORS.warning)
-    .addFields(
-      { name: 'Requester', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
-      { name: 'Channel', value: channel.toString(), inline: true },
-    )
-    .setTimestamp()
-  ).catch(() => {});
-
-  logger.info(`teamRep: request posted for ${member.user.tag}`);
+  logger.info(`teamRep: request card posted (${inLog ? 'log channel' : 'request channel fallback'}) for ${member.user.tag}`);
 }
 
 module.exports = {
@@ -215,8 +219,13 @@ module.exports = {
       }
 
       try {
-        // A restart must not duplicate an embed that is still pending.
-        const pending = await findPendingRequest(message.channel, userId);
+        // A restart must not duplicate a card that is still pending.
+        // Cards live in the log channel (or the request channel as fallback).
+        const logChannelId = process.env.ADMIN_LOG_CHANNEL;
+        const scanChannel = logChannelId
+          ? await message.client.channels.fetch(logChannelId).catch(() => null)
+          : null;
+        const pending = await findPendingRequest(scanChannel ?? message.channel, userId);
         if (pending) {
           await message.react('⏳').catch(() => {});
           return;
