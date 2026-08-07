@@ -7,6 +7,9 @@
  * flow means adding a row — the dispatcher, the admin permission gate and
  * the audit-log wrapping are shared, so they can't drift per handler.
  *
+ * Slash commands and their autocomplete are the exception: they dispatch by
+ * command name straight into the command module (`execute` / `autocomplete`).
+ *
  * Route entry fields:
  *   id         exact customId match
  *   prefix     customId prefix match (use one or the other)
@@ -257,6 +260,8 @@ async function runRoute(route, interaction) {
 /** @param {import('discord.js').RepliableInteraction} interaction */
 async function failSafe(interaction, error, context) {
   logger.error(`Error handling ${context}:`, error);
+  // Autocomplete has no reply channel; the client just shows no suggestions.
+  if (interaction.isAutocomplete?.()) return;
   /** @type {import('discord.js').InteractionReplyOptions} */
   const reply = { content: '❌ An error occurred.', flags: MessageFlags.Ephemeral };
   if (interaction.replied || interaction.deferred) {
@@ -264,6 +269,19 @@ async function failSafe(interaction, error, context) {
   } else {
     await interaction.reply(reply).catch(() => {});
   }
+}
+
+/**
+ * Autocomplete dispatch: a command with autocompleted options exports
+ * `autocomplete(interaction)` next to `execute`. Commands without one still get
+ * an empty response so the client does not sit on "loading options".
+ * @param {import('discord.js').AutocompleteInteraction} interaction
+ */
+async function handleAutocomplete(interaction) {
+  const client = /** @type {import('../index').MwfClient} */ (interaction.client);
+  const command = client.commands.get(interaction.commandName);
+  if (!command?.autocomplete) return interaction.respond([]);
+  return command.autocomplete(interaction);
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -274,13 +292,25 @@ module.exports = {
   /** @param {import('discord.js').RepliableInteraction} interaction */
   async execute(interaction) {
 
+    // Autocomplete is the one kind that cannot be replied to, so it is picked
+    // out up front and handled through its own (non-repliable) type.
+    const autocomplete = interaction.isAutocomplete?.()
+      ? /** @type {import('discord.js').AutocompleteInteraction} */ (/** @type {*} */ (interaction))
+      : null;
+
     // Enforce the optional ALLOWED_GUILDS gate before any handler runs.
     if (interaction.guildId && !guildAllowed(interaction.guildId)) {
       logger.warn(`Rejected interaction from unlisted guild ${interaction.guildId}`);
+      // Answer autocomplete with an empty list so the client stops waiting
+      // instead of showing "loading options" forever.
+      if (autocomplete) return autocomplete.respond([]).catch(() => {});
       return rejectUnlistedGuild(interaction);
     }
 
     try {
+      // ── Autocomplete ──────────────────────────────────────────────────────
+      if (autocomplete) return await handleAutocomplete(autocomplete);
+
       // ── Slash Commands ────────────────────────────────────────────────────
       if (interaction.isChatInputCommand()) {
         // client.commands is attached in src/index.js (see MwfClient there).

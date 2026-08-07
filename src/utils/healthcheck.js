@@ -18,7 +18,12 @@
  *      swaps).
  *   4. Each faction role exists AND the bot's highest role sits above it —
  *      otherwise Discord rejects role add/remove even with Manage Roles.
- *   5. Stale cache self-heal: drop any Lineup/Server/Rotation cache entry
+ *   5. Bot has guild-level `Manage Nicknames` (needed by the clan tag
+ *      commands), plus an informational note about configured tags and any
+ *      tag that has no matching role.
+ *   6. Optional Team Rep feature: channel + role + hierarchy.
+ *   7. Rotation diagnostics.
+ *   8. Stale cache self-heal: drop any Lineup/Server/Rotation cache entry
  *      whose referenced Discord message no longer exists, and report how
  *      many entries were cleared (info-level, not a failure).
  */
@@ -34,6 +39,7 @@ const { loadRotationMsgId, clearRotationMsgId, loadRotationState, rotationHistor
 const { monthHeader, MAP_CYCLE, warsawDateParts, validateState } = require('./rotationState');
 const { FACTIONS } = require('../config/factions');
 const { HEALTHCHECK_ENV_VARS: REQUIRED_ENV_VARS } = require('../config/constants');
+const { loadTags } = require('./tagStore');
 
 const CHANNEL_CHECKS = [
   { envVar: 'FACTION_CHANNEL',        label: 'Faction',        needsManage: false, multiple: false },
@@ -43,6 +49,7 @@ const CHANNEL_CHECKS = [
   { envVar: 'NODES_CHANNELS',         label: 'Nodes',          needsManage: false, multiple: true  },
   { envVar: 'ADMIN_LOG_CHANNEL',      label: 'Admin Logs',     needsManage: true,  multiple: false, optional: true },
   { envVar: 'TEAM_REP_CHANNEL',       label: 'Team Rep',       needsManage: false, multiple: false, optional: true },
+  { envVar: 'TAG_CHANNEL',            label: 'Clan Tags',      needsManage: false, multiple: false, optional: true },
 ];
 
 function permName(flag) {
@@ -207,6 +214,7 @@ async function runHealthcheck(client, guildId) {
 
   // 3. Guild-level Manage Roles (needed for Reset Roles and faction swaps)
   let guild = null;
+  let botMember = null;
   try { guild = await client.guilds.fetch(guildId); } catch (_) { /* handled below */ }
 
   total++;
@@ -219,6 +227,7 @@ async function runHealthcheck(client, guildId) {
     });
   } else {
     const me = guild.members.me ?? (await guild.members.fetchMe().catch(() => null));
+    botMember = me;
     if (!me) {
       issues.push({
         kind: 'bot-member',
@@ -284,7 +293,42 @@ async function runHealthcheck(client, guildId) {
     passed++;
   }
 
-  // 5. Optional Team Rep feature: if either setting is present, require and
+  // 5. Clan tags: the /tag commands rewrite nicknames, which needs guild-level
+  //    Manage Nicknames. Tag roles themselves are optional — a tag without a
+  //    matching role only changes the nickname — so missing roles are reported
+  //    as a note rather than an issue.
+  total++;
+  if (!guild) {
+    issues.push({ kind: 'guild', label: 'guild: Manage Nicknames', detail: 'guild unreachable', hint: 'see guild issue above' });
+  } else if (!botMember) {
+    issues.push({
+      kind: 'bot-member', label: 'guild: Manage Nicknames',
+      detail: 'could not fetch bot member',
+      hint: 're-invite the bot with the `bot` + `applications.commands` scopes',
+    });
+  } else if (!botMember.permissions.has(PermissionFlagsBits.ManageNicknames)) {
+    issues.push({
+      kind: 'manage-nicknames',
+      label: 'guild: Manage Nicknames',
+      detail: 'bot lacks Manage Nicknames permission',
+      hint: 'grant Manage Nicknames in the server role settings — /tag and /tags set will fail without it',
+    });
+  } else {
+    passed++;
+  }
+
+  const clanTags = loadTags();
+  if (clanTags.length === 0) {
+    notes.push('clan tags: none configured — add one with /tags add');
+  } else {
+    const roleless = guild
+      ? clanTags.filter(t => !guild.roles.cache.some(r => r.name.toLowerCase() === t.toLowerCase()))
+      : [];
+    const rolelessNote = roleless.length ? ` · no role for ${roleless.map(t => `\`${t}\``).join(', ')}` : '';
+    notes.push(`clan tags: ${clanTags.length} configured${rolelessNote}`);
+  }
+
+  // 6. Optional Team Rep feature: if either setting is present, require and
   // validate both the channel and role, including role hierarchy.
   const teamRepChannelId = process.env.TEAM_REP_CHANNEL;
   const teamRepRoleId = process.env.TEAM_REP_ROLE_ID;
@@ -329,7 +373,7 @@ async function runHealthcheck(client, guildId) {
     }
   }
 
-  // 6. Rotation diagnostics (admin-only healthcheck output).
+  // 7. Rotation diagnostics (admin-only healthcheck output).
   if (process.env.MAP_ROTATION_CHANNEL) {
     const rotationState = loadRotationState(process.env.MAP_ROTATION_CHANNEL);
     if (rotationState) {
@@ -346,7 +390,7 @@ async function runHealthcheck(client, guildId) {
     }
   }
 
-  // 7. Stale cache self-heal (silent; reported as a note, not a failure)
+  // 8. Stale cache self-heal (silent; reported as a note, not a failure)
   try {
     const cleared = await healStaleCache(client);
     if (cleared > 0) {

@@ -11,6 +11,28 @@ function createFactionEmbed() {
     .setThumbnail(THUMBNAIL_URL);
 }
 
+/**
+ * Public "how do I get my clan tag" embed, posted with `/tags post`.
+ * @param {string[]} tags - the currently available tags
+ */
+function createTagInfoEmbed(tags) {
+  const list = tags.length
+    ? tags.map(t => `\`[${t}]\``).join(' · ')
+    : '_No tags configured yet._';
+
+  return new EmbedBuilder()
+    .setTitle('🏷️ Clan Tags')
+    .setDescription(
+      'Use **`/tag set`** to put your clan tag in front of your nickname, like `[TAG] Name`.\n' +
+      'The tag field autocompletes — pick your clan from the list.\n\n' +
+      'Use **`/tag remove`** to drop it again. You can switch or remove your tag at any time.\n' +
+      "Please don't use the tag of a clan you aren't a member of."
+    )
+    .addFields({ name: 'Available tags', value: list })
+    .setColor(COLORS.primary)
+    .setThumbnail(THUMBNAIL_URL);
+}
+
 function createSuccessEmbed(title, description) {
   // Same dark navy as every other embed — the ✅ in the title carries the
   // status, not the stripe color.
@@ -29,4 +51,4 @@ function createErrorEmbed(title, description) {
     .setTimestamp();
 }
 
-module.exports = { createFactionEmbed, createSuccessEmbed, createErrorEmbed };
+module.exports = { createFactionEmbed, createTagInfoEmbed, createSuccessEmbed, createErrorEmbed };

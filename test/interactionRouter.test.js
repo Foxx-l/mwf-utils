@@ -149,6 +149,46 @@ describe('execute() dispatch', () => {
     }));
   });
 
+  test('autocomplete reaches the command module', async () => {
+    const autocomplete = jest.fn().mockResolvedValue(undefined);
+    const interaction = baseInteraction({
+      isAutocomplete: () => true,
+      commandName: 'tag',
+      client: { commands: new Map([['tag', { autocomplete }]]) },
+      respond: jest.fn().mockResolvedValue(undefined),
+    });
+
+    await router.execute(interaction);
+
+    expect(autocomplete).toHaveBeenCalledWith(interaction);
+    expect(interaction.respond).not.toHaveBeenCalled();
+  });
+
+  test('autocomplete for a command without a handler answers with an empty list', async () => {
+    const interaction = baseInteraction({
+      isAutocomplete: () => true,
+      commandName: 'ping',
+      client: { commands: new Map([['ping', {}]]) },
+      respond: jest.fn().mockResolvedValue(undefined),
+    });
+
+    await router.execute(interaction);
+
+    expect(interaction.respond).toHaveBeenCalledWith([]);
+  });
+
+  test('an autocomplete handler that throws does not try to reply', async () => {
+    const interaction = baseInteraction({
+      isAutocomplete: () => true,
+      commandName: 'tag',
+      client: { commands: new Map([['tag', { autocomplete: () => { throw new Error('boom'); } }]]) },
+      respond: jest.fn().mockResolvedValue(undefined),
+    });
+
+    await expect(router.execute(interaction)).resolves.toBeUndefined();
+    expect(interaction.reply).not.toHaveBeenCalled();
+  });
+
   test('handler errors produce the generic ephemeral reply', async () => {
     // A faction button with a broken member object forces the handler to throw.
     const interaction = baseInteraction({

@@ -21,27 +21,18 @@ Items are grouped by priority and complexity.
   card in the admin log channel (pinging `TEAM_REP_PING_ROLE`); admins approve
   or reject with buttons. `/teamrep add|remove` for manual management.
   - Tuning env vars: `TEAM_REP_COOLDOWN_MS`, `TEAM_REP_MAX_RETRIES`, `TEAM_REP_BACKOFF_BASE_MS`
-
----
-
-## 🔜 Planned Features
-
-### 1. Clan Tag Automation
-**Priority:** High  
-**Channel:** `#request-clan-tag`
-
-Players write their clan tag in the request channel (e.g. `DD`, `Ratz`, `Greyhounds`).
-The bot reads the message, extracts the tag, and automatically updates the player's Discord nickname
-to the format `[TAG] Username`.
-
-**Details:**
-- Bot parses the first word / bracket-wrapped tag from the message
-- Updates the member's server nickname using `[TAG] Username` format
-- Reacts with ✅ on success or ❌ on failure (e.g. insufficient permissions for admins)
-- Logs the tag change to the admin log channel (user mention + old nickname → new nickname)
-- If the user already has a tag, it is replaced
-- Admins can trigger a tag update for another user via `/tag set @user [TAG]`
-- `/tag remove @user` strips the tag from the user's nickname
+- Clan Tag Automation — ported from the standalone TagSelector bot. Members set their
+  own `[TAG] Name` nickname prefix with `/tag set` (autocompleted) and drop it with
+  `/tag remove`; admins manage the list and other members' tags with
+  `/tags list|add|remove|post|set|clear`.
+  - Tag list persists in `data/tags_data.json`; matching tag roles are granted by role **name**
+  - Every change is logged to `ADMIN_LOG_CHANNEL` (member + tag + old → new nickname)
+  - Requires the bot to have **Manage Nicknames**; optional env var `TAG_CHANNEL`
+  - Implemented in `src/utils/tagStore.js`, `src/handlers/interactions/tagHandler.js`,
+    `src/commands/member/tag.js`, `src/commands/admin/tags.js`
+  - Deviation from the original plan: the tag is chosen from a curated, autocompleted
+    list instead of parsed out of free-text messages in a request channel, so members
+    can't invent tags for clans they don't belong to.
 
 ---
 
@@ -49,7 +40,8 @@ to the format `[TAG] Username`.
 
 - `/history` — admin command to view past weekly reset logs
 - Automatic DM to players after faction selection with match schedule
-- Slash command autocomplete for clan tags (based on known tags in the server)
+- Clan tags in `/panel` — status row plus a "Post Tag Info" action, so the info
+  embed is managed like the other embeds instead of only via `/tags post`
 
 ---
 

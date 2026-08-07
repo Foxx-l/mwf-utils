@@ -27,6 +27,11 @@ details, map rotation, and node info, all driven from a single admin panel.
   and ✅/❌ buttons) is posted to `ADMIN_LOG_CHANNEL`, never to the public
   channel. The public channel shows only reactions on the request message
   (⏳ → ✅ / ❌ / ℹ️). `/teamrep add|remove` still works for manual management.
+- **Clan tags** — members put their clan tag in front of their nickname with
+  `/tag set` (autocompleted from the configured tag list) and drop it again
+  with `/tag remove`. Admins manage the list and other members' tags with
+  `/tags`. If a role named exactly like the tag exists it is granted, and any
+  other tag role is removed.
 - **Audit logging** — every admin action is logged to `ADMIN_LOG_CHANNEL`;
   the panel footer shows the most recent action.
 
@@ -36,8 +41,12 @@ In the [Discord Developer Portal](https://discord.com/developers/applications)
 for your bot application, under **Bot → Privileged Gateway Intents**, enable:
 
 - **Server Members Intent** — required. The weekly role reset, healthcheck,
-  and `/teamrep` all fetch guild members; without this intent Discord rejects
-  those calls with a cryptic "Used disallowed intents" error.
+  `/teamrep` and `/tags set|clear` all fetch guild members; without this intent
+  Discord rejects those calls with a cryptic "Used disallowed intents" error.
+
+The bot also needs **Manage Nicknames** in the server (for the clan tag
+commands) in addition to **Manage Roles**, and its own role must sit above
+every role it hands out and above the members whose nicknames it renames.
 
 Message Content Intent is **not** required (the bot never reads message text).
 
@@ -69,7 +78,7 @@ npm run deploy         # register slash commands (once)
 npm start
 ```
 
-Stores (lineup, rotation, nodes, last-action) persist in `./data` relative to
+Stores (lineup, rotation, nodes, clan tags, last-action) persist in `./data` relative to
 the bot's working directory. Set `DATA_DIR` to override this location. In the
 Docker image the working directory is `/app`, so the existing `bot_data` volume
 continues to persist `/app/data`.
@@ -96,6 +105,7 @@ remaining values enable their corresponding features.
 | `TEAM_REP_CHANNEL` | Channel where posting any message requests the Team Rep role (optional feature) |
 | `TEAM_REP_ROLE_ID` | Role granted when a Team Rep request is approved (optional feature) |
 | `TEAM_REP_PING_ROLE` | Role pinged on every new Team Rep request (optional feature) |
+| `TAG_CHANNEL` | Where `/tags post` publishes the clan tag info embed (optional — defaults to the channel the command is run in) |
 
 Optional: `SERVER_S{1,2}_{NAME,PASSWORD}`, `RESET_DAY`, `RESET_HOUR`,
 `ROTATION_EVENT_TIME`, `FACTION_SWAP_COOLDOWN_SECONDS`,
@@ -109,6 +119,8 @@ Optional: `SERVER_S{1,2}_{NAME,PASSWORD}`, `RESET_DAY`, `RESET_HOUR`,
 | `/panel` | Administrator | Open the admin control panel |
 | `/lineup server:<S1\|S2> image:<file>` | Administrator | Post a lineup image |
 | `/teamrep add\|remove member:<user>` | Administrator | Manually assign/remove the Team Rep role |
+| `/tag set tag:<tag>` · `/tag remove` | anyone | Set/remove your own `[TAG]` nickname prefix |
+| `/tags list\|add\|remove\|post\|set\|clear` | Administrator | Manage the clan tag list and other members' tags |
 | `/ping` | anyone | Bot latency check |
 
 Everything else (posting/editing server details, rotation, nodes, reloading
@@ -129,6 +141,26 @@ posted, ↗ jump link) and five dropdowns:
 
 Destructive actions (Reset Roles, Clear Log Channel) require ephemeral
 confirmation and are rate-limited per user.
+
+## Clan tags
+
+The tag list lives in `data/tags_data.json` (seeded with `OKT` and `TLL` on
+first boot) and feeds the autocomplete on `/tag set`.
+
+- Nicknames are rewritten to `[TAG] Name`. An existing `[...]` prefix is
+  stripped first, so switching tags never stacks prefixes, and the name is
+  truncated — never the tag — to stay inside Discord's 32-character limit.
+- Removing a tag restores the plain name; if that equals the member's account
+  name the per-guild nickname is cleared instead of set.
+- Tag roles are matched by **role name**. Create a role named exactly like the
+  tag and members get it automatically; without one, only the nickname changes.
+  Roles are never created here, and a role failure never undoes the nickname
+  change — the member just gets a warning.
+- `/tags remove` only takes the tag out of the list. Pass `delete_role:true` to
+  also delete the Discord role; members who already carry the tag keep their
+  nickname until they run `/tag remove`.
+- `/tags post` publishes the public info embed to `TAG_CHANNEL`, or to the
+  current channel when that variable is unset.
 
 ## Map rotation safety
 
@@ -173,7 +205,9 @@ file, add the header and fix what `npm run typecheck` reports.
 Interaction routing is table-driven (`src/events/interactionCreate.js`):
 adding a button/modal/select flow means adding a row to `BUTTON_ROUTES`,
 `MODAL_ROUTES` or `SELECT_ROUTES` — the dispatcher, the admin gate and the
-audit-log wrapping are shared.
+audit-log wrapping are shared. Slash commands dispatch by name into the command
+module; a command with autocompleted options exports `autocomplete(interaction)`
+next to `execute`.
 
 ## License
 

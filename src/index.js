@@ -5,7 +5,8 @@
  * @typedef {import('discord.js').Client<true> & {
  *   commands: import('discord.js').Collection<string, {
  *     data?: { toJSON: () => unknown },
- *     execute: (interaction: import('discord.js').ChatInputCommandInteraction) => Promise<unknown>
+ *     execute: (interaction: import('discord.js').ChatInputCommandInteraction) => Promise<unknown>,
+ *     autocomplete?: (interaction: import('discord.js').AutocompleteInteraction) => Promise<unknown>
  *   }>
  * }} MwfClient
  */
