@@ -111,7 +111,7 @@ async function handleTeamRepApprove(interaction) {
 
   sendLog(interaction.client, new EmbedBuilder()
     .setTitle('Team Rep Approved')
-    .setColor(COLORS.success)
+    .setColor(COLORS.primary)
     .addFields(
       { name: 'Member', value: `${member.user.tag} (<@${member.id}>)`, inline: true },
       { name: 'Approved by', value: `<@${interaction.user.id}>`, inline: true },

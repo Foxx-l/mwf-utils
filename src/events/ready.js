@@ -30,8 +30,10 @@ module.exports = {
       return { ok: false, reason: err.message };
     });
 
+    // Same dark navy as every other embed; status is conveyed by the ✅/⚠️
+    // in the fields, not by the stripe color.
     const startupEmbed = new EmbedBuilder()
-      .setColor(dataWritable && rotation.ok ? COLORS.success : COLORS.warning)
+      .setColor(COLORS.primary)
       .setTitle('🚀 Bot Online')
       .setDescription(`Version \`${pkg.version}\` · Node ${process.version}`)
       .addFields(

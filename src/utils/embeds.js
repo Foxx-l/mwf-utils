@@ -12,10 +12,12 @@ function createFactionEmbed() {
 }
 
 function createSuccessEmbed(title, description) {
+  // Same dark navy as every other embed — the ✅ in the title carries the
+  // status, not the stripe color.
   return new EmbedBuilder()
     .setTitle(`✅ ${title}`)
     .setDescription(description)
-    .setColor(COLORS.success)
+    .setColor(COLORS.primary)
     .setTimestamp();
 }
 
