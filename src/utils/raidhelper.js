@@ -30,24 +30,59 @@ function _apiKey() {
   return key;
 }
 
+// The API allows 10 requests per 5 seconds; with one event per clan a post or
+// cancel run makes 30+ calls, so every request goes through one serialized,
+// paced queue, and a 429 that slips through anyway is retried after the wait
+// the API asks for.
+const MIN_REQUEST_INTERVAL_MS = 550;
+const MAX_RATE_LIMIT_RETRIES = 3;
+const DEFAULT_RETRY_WAIT_MS = 5000;
+
+const _sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+let _queue = Promise.resolve();
+let _lastRequestAt = 0;
+
+/** Milliseconds to wait, parsed from e.g. `"Try again in 3.2s"` (null = no hint). */
+function _retryAfterMs(body) {
+  const m = /try again in\s*(\d+(?:\.\d+)?)\s*s/i.exec(body || '');
+  return m ? Math.ceil(Number(m[1]) * 1000) : null;
+}
+
 /**
  * @param {string} url
  * @param {RequestInit} init
  */
-async function _request(url, init) {
-  const res = await fetch(url, {
-    ...init,
-    headers: { Authorization: _apiKey(), 'Content-Type': 'application/json', ...(init.headers || {}) },
-  });
-  const body = await res.text();
-  if (!res.ok) {
-    throw new RaidHelperError(`RaidHelper ${init.method} ${res.status}: ${body.slice(0, 300)}`, res.status);
-  }
-  try {
-    return body ? JSON.parse(body) : {};
-  } catch (_) {
-    // Some endpoints answer with plain text on success (e.g. deletes).
-    return { raw: body };
+function _request(url, init) {
+  const run = _queue.then(() => _pacedRequest(url, init));
+  _queue = run.catch(() => {}); // one failure must not wedge the queue
+  return run;
+}
+
+async function _pacedRequest(url, init) {
+  for (let attempt = 0; ; attempt++) {
+    const wait = _lastRequestAt + MIN_REQUEST_INTERVAL_MS - Date.now();
+    if (wait > 0) await _sleep(wait);
+    _lastRequestAt = Date.now();
+
+    const res = await fetch(url, {
+      ...init,
+      headers: { Authorization: _apiKey(), 'Content-Type': 'application/json', ...(init.headers || {}) },
+    });
+    const body = await res.text();
+
+    if (res.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
+      await _sleep(_retryAfterMs(body) ?? DEFAULT_RETRY_WAIT_MS);
+      continue;
+    }
+    if (!res.ok) {
+      throw new RaidHelperError(`RaidHelper ${init.method} ${res.status}: ${body.slice(0, 300)}`, res.status);
+    }
+    try {
+      return body ? JSON.parse(body) : {};
+    } catch (_) {
+      // Some endpoints answer with plain text on success (e.g. deletes).
+      return { raw: body };
+    }
   }
 }
 
