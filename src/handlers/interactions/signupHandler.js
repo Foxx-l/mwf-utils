@@ -30,7 +30,6 @@ const { COLORS } = require('../../config/theme');
 const { loadTags } = require('../../utils/tagStore');
 const store = require('../../utils/signupStore');
 const raidhelper = require('../../utils/raidhelper');
-const { getRotationEventTime } = require('../../config/runtime');
 const { warsawDateParts } = require('../../utils/warsawTime');
 const { sendLog } = require('./shared');
 
@@ -44,6 +43,55 @@ const DEFAULT_CATEGORY_NAME = 'MWF Signups';
 // guild custom templates need the `ct` prefix.
 const DEFAULT_CLAN_TEMPLATE = 'ct21';
 const DEFAULT_SOLO_TEMPLATE = 'ct21';
+
+// Event time is the briefing (match start is +30 min, see the description).
+const DEFAULT_EVENT_TIME = '19:30';
+
+// Description and per-event overrides mirrored from the guild's existing
+// scheduled "Midweek Frontline - Solo Signup" events, so API-created events
+// render identically: schedule block, 2-hour duration, brand color, hidden
+// leader flag, and the Bench/Late/Tentative/Absence buttons hidden (that is
+// what the blank emote id does). `{eventtime…}` placeholders resolve per event.
+const SIGNUP_DESCRIPTION = [
+  '### Schedule:',
+  ':alarm_clock: **Briefing** - **<t:{eventtime#unix}:t>**',
+  ':arrow_right: **Start** - **<t:{eventtime+30#unix}:t>**',
+  '',
+  '### Disclaimer:',
+  'Single signups are welcome, but **full squads** will be **prioritized**.',
+].join('\n');
+
+const HIDDEN_BUTTON_EMOTE = '782549546210951188';
+
+function baseAdvancedSettings() {
+  return {
+    create_discordevent: false,
+    duration: 120,
+    deletion: '0',
+    color: '#011327',
+    show_leader: false,
+    show_on_overview: false,
+    show_extra_specs: false,
+    spec_saving: false,
+    apply_unregister: true,
+    apply_specreset: false,
+    lock_at_limit: false,
+    bench_overflow: false,
+    font_style: 'none',
+    tp_deletion: '0',
+    tentative_emote: HIDDEN_BUTTON_EMOTE,
+    late_emote: HIDDEN_BUTTON_EMOTE,
+    bench_emote: HIDDEN_BUTTON_EMOTE,
+    absence_emote: HIDDEN_BUTTON_EMOTE,
+    specreset_emote: HIDDEN_BUTTON_EMOTE,
+  };
+}
+
+/** Briefing time (24h HH:MM Warsaw) the events are created with. */
+function signupEventTime() {
+  const value = String(process.env.SIGNUP_EVENT_TIME || DEFAULT_EVENT_TIME).trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : DEFAULT_EVENT_TIME;
+}
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
@@ -66,7 +114,7 @@ function signupChannelName(tag) {
 function nextMatchDate(now = new Date()) {
   const matchDay = Number.parseInt(process.env.SIGNUP_MATCH_DAY ?? '3', 10);
   const day = Number.isInteger(matchDay) && matchDay >= 0 && matchDay <= 6 ? matchDay : 3;
-  const [eventHour, eventMinute] = getRotationEventTime().split(':').map(Number);
+  const [eventHour, eventMinute] = signupEventTime().split(':').map(Number);
 
   const parts = warsawDateParts(now);
   let daysAhead = (day - parts.weekday + 7) % 7;
@@ -211,7 +259,7 @@ async function ensureStructure(guild) {
  */
 async function postSignups(guild, match, { leaderId }) {
   const { channels, created, warnings } = await ensureStructure(guild);
-  const time = getRotationEventTime();
+  const time = signupEventTime();
   const results = [];
 
   for (const [key, channel] of channels) {
@@ -232,14 +280,18 @@ async function postSignups(guild, match, { leaderId }) {
         date: match.date,
         time,
         title: `Midweek Frontline — ${label}`,
-        // The template carries create_discordevent:true; with dozens of clan
-        // events per match that would spawn dozens of guild-wide Discord
-        // scheduled events and "new event" notifications — keep it off.
-        // Clan events also drop the template's temp_role (the "Solo Signup"
-        // role) — only the solo event should grant it.
+        description: SIGNUP_DESCRIPTION,
+        // Mirror the scheduled solo events' rendering; clan events also drop
+        // the template's temp_role (the "Solo Signup" role) — only the solo
+        // event grants it — and the solo event links its voice channel.
         advancedSettings: isSolo
-          ? { create_discordevent: false }
-          : { create_discordevent: false, temp_role: false },
+          ? {
+            ...baseAdvancedSettings(),
+            ...(process.env.SIGNUP_SOLO_VOICE_CHANNEL
+              ? { voice_channel: process.env.SIGNUP_SOLO_VOICE_CHANNEL }
+              : {}),
+          }
+          : { ...baseAdvancedSettings(), temp_role: false },
       });
       store.recordEvent(match.date, key, { id: event.id, channelId: channel.id });
       results.push({ key, label, status: 'created' });
@@ -358,7 +410,7 @@ function buildSignupsPayload(guild, extraLines = []) {
   const category = state.category_id && guild ? guild.channels.cache.get(state.category_id) : null;
 
   const rows = [
-    `📅 **Next match**   ${match.date} at ${getRotationEventTime()}`,
+    `📅 **Next match**   ${match.date}, briefing ${signupEventTime()}`,
     `📮 **Posted**   ${postedCount}/${wanted.length} (${tags.length} clans + solo)`,
     `🔁 **Auto-post**   ${state.auto_post ? '🟢 on (daily check)' : '🔴 off'}`,
     `🗂️ **Category**   ${category ? `🟢 ${category.name}` : '🔴 not created yet'}`,
