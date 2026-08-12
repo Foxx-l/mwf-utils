@@ -37,9 +37,13 @@ const { sendLog } = require('./shared');
 const SOLO_KEY = store.SOLO_KEY;
 const SOLO_CHANNEL_NAME = 'signup-solo';
 const DEFAULT_CATEGORY_NAME = 'MWF Signups';
-// The guild's existing RaidHelper templates: 24 = Squad Signup, 23 = Solo.
-const DEFAULT_CLAN_TEMPLATE = '24';
-const DEFAULT_SOLO_TEMPLATE = '23';
+// The guild's custom "Solo Signup" RaidHelper template (Commander/Infantry/
+// Tank/Recon/Artillery classes). Clan events use the same template but
+// suppress its `temp_role` ("Solo Signup") via advancedSettings; the solo
+// event keeps it. Note: numeric ids address RaidHelper's built-in templates —
+// guild custom templates need the `ct` prefix.
+const DEFAULT_CLAN_TEMPLATE = 'ct21';
+const DEFAULT_SOLO_TEMPLATE = 'ct21';
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
@@ -231,7 +235,11 @@ async function postSignups(guild, match, { leaderId }) {
         // The template carries create_discordevent:true; with dozens of clan
         // events per match that would spawn dozens of guild-wide Discord
         // scheduled events and "new event" notifications — keep it off.
-        advancedSettings: { create_discordevent: false },
+        // Clan events also drop the template's temp_role (the "Solo Signup"
+        // role) — only the solo event should grant it.
+        advancedSettings: isSolo
+          ? { create_discordevent: false }
+          : { create_discordevent: false, temp_role: false },
       });
       store.recordEvent(match.date, key, { id: event.id, channelId: channel.id });
       results.push({ key, label, status: 'created' });
