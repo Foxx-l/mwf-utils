@@ -21,6 +21,7 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
+  OverwriteType,
   PermissionFlagsBits,
   MessageFlags,
 } = require('discord.js');
@@ -93,19 +94,24 @@ function categoryName() {
 function clanOverwrites(guild, tag) {
   const role = guild.roles.cache.find(r => r.name === tag);
   const rhBotId = process.env.RAIDHELPER_BOT_ID;
+  // Every overwrite carries an explicit `type`: the ids are raw snowflakes,
+  // and discord.js refuses to guess user-vs-role for ids it has not cached
+  // (the RaidHelper bot member usually is not).
   const overwrites = [
-    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+    { id: guild.roles.everyone.id, type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
     {
       id: guild.members.me?.id ?? guild.client.user.id,
+      type: OverwriteType.Member,
       allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
     },
   ];
   if (role) {
-    overwrites.push({ id: role.id, allow: [PermissionFlagsBits.ViewChannel] });
+    overwrites.push({ id: role.id, type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel] });
   }
   if (rhBotId) {
     overwrites.push({
       id: rhBotId,
+      type: OverwriteType.Member,
       allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
