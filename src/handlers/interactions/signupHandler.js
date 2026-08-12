@@ -52,10 +52,15 @@ const DEFAULT_EVENT_TIME = '19:30';
 // render identically: schedule block, 2-hour duration, brand color, hidden
 // leader flag, and the Bench/Late/Tentative/Absence buttons hidden (that is
 // what the blank emote id does). `{eventtime…}` placeholders resolve per event.
+// The single-signups disclaimer only makes sense on the solo event.
 const SIGNUP_DESCRIPTION = [
   '### Schedule:',
   ':alarm_clock: **Briefing** - **<t:{eventtime#unix}:t>**',
   ':arrow_right: **Start** - **<t:{eventtime+30#unix}:t>**',
+].join('\n');
+
+const SOLO_DESCRIPTION = [
+  SIGNUP_DESCRIPTION,
   '',
   '### Disclaimer:',
   'Single signups are welcome, but **full squads** will be **prioritized**.',
@@ -135,20 +140,17 @@ function categoryName() {
 // ── Structure: category + channels ───────────────────────────────────────────
 
 /**
- * Permission overwrites for a clan's private signup channel. The clan role is
- * matched by name (same convention as tagHandler.syncTagRoles); RaidHelper's
- * bot needs an explicit allow or it can neither post the event nor serve the
- * signup buttons to members.
+ * Overwrites for a private signup channel: hidden from @everyone, visible to
+ * one role, always accessible to this bot and to RaidHelper's bot (which
+ * needs an explicit allow or it can neither post the event nor serve the
+ * signup buttons). Every overwrite carries an explicit `type`: the ids are
+ * raw snowflakes, and discord.js refuses to guess user-vs-role for ids it
+ * has not cached (the RaidHelper bot member usually is not).
  * @param {import('discord.js').Guild} guild
- * @param {string} tag
- * @returns {{ overwrites: Array<Object>, warning: string|null }}
+ * @param {string|undefined} allowRoleId
  */
-function clanOverwrites(guild, tag) {
-  const role = guild.roles.cache.find(r => r.name === tag);
+function privateChannelOverwrites(guild, allowRoleId) {
   const rhBotId = process.env.RAIDHELPER_BOT_ID;
-  // Every overwrite carries an explicit `type`: the ids are raw snowflakes,
-  // and discord.js refuses to guess user-vs-role for ids it has not cached
-  // (the RaidHelper bot member usually is not).
   const overwrites = [
     { id: guild.roles.everyone.id, type: OverwriteType.Role, deny: [PermissionFlagsBits.ViewChannel] },
     {
@@ -157,8 +159,8 @@ function clanOverwrites(guild, tag) {
       allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
     },
   ];
-  if (role) {
-    overwrites.push({ id: role.id, type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel] });
+  if (allowRoleId) {
+    overwrites.push({ id: allowRoleId, type: OverwriteType.Role, allow: [PermissionFlagsBits.ViewChannel] });
   }
   if (rhBotId) {
     overwrites.push({
@@ -172,22 +174,56 @@ function clanOverwrites(guild, tag) {
       ],
     });
   }
+  return overwrites;
+}
+
+/**
+ * Overwrites for a clan's channel. The clan role is matched by name (same
+ * convention as tagHandler.syncTagRoles).
+ * @param {import('discord.js').Guild} guild
+ * @param {string} tag
+ * @returns {{ overwrites: Array<Object>, warning: string|null }}
+ */
+function clanOverwrites(guild, tag) {
+  const role = guild.roles.cache.find(r => r.name === tag);
   let warning = null;
   if (!role) warning = `No role named \`${tag}\` — channel is admin-only until the role exists.`;
-  else if (!rhBotId) warning = 'RAIDHELPER_BOT_ID is not set — RaidHelper may not see the private channels.';
-  return { overwrites, warning };
+  else if (!process.env.RAIDHELPER_BOT_ID) warning = 'RAIDHELPER_BOT_ID is not set — RaidHelper may not see the private channels.';
+  return { overwrites: privateChannelOverwrites(guild, role?.id), warning };
+}
+
+/**
+ * Overwrites for the solo channel: visible to everyone who has linked their
+ * PlayerID (the role the register bot grants, SIGNUP_SOLO_ROLE_ID). Unset
+ * means the channel stays public.
+ * @param {import('discord.js').Guild} guild
+ * @returns {{ overwrites: Array<Object>|undefined, warning: string|null }}
+ */
+function soloOverwrites(guild) {
+  const roleId = (process.env.SIGNUP_SOLO_ROLE_ID || '').trim();
+  if (!roleId) {
+    return { overwrites: undefined, warning: 'SIGNUP_SOLO_ROLE_ID is not set — #signup-solo is visible to everyone.' };
+  }
+  if (!guild.roles.cache.get(roleId)) {
+    return { overwrites: undefined, warning: `SIGNUP_SOLO_ROLE_ID role ${roleId} not found — leaving #signup-solo permissions unchanged.` };
+  }
+  return { overwrites: privateChannelOverwrites(guild, roleId), warning: null };
 }
 
 /**
  * Finds or creates the signup category and one channel per clan tag plus the
- * public solo channel. Never deletes anything — a removed tag just leaves its
- * channel behind for the admins to archive.
+ * solo channel. Never deletes anything — a removed tag just leaves its
+ * channel behind for the admins to archive. With `applyOverwrites` (the
+ * panel's "Sync channels"), permission overwrites are re-applied to existing
+ * channels too, so role/config changes propagate; plain posting only sets
+ * them on newly created channels.
  * @param {import('discord.js').Guild} guild
+ * @param {{ applyOverwrites?: boolean }} [opts]
  * @returns {Promise<{ category: import('discord.js').CategoryChannel,
  *                     channels: Map<string, import('discord.js').TextChannel>,
  *                     created: string[], warnings: string[] }>}
  */
-async function ensureStructure(guild) {
+async function ensureStructure(guild, { applyOverwrites = false } = {}) {
   const state = store.getState();
   const created = [];
   const warnings = [];
@@ -231,6 +267,12 @@ async function ensureStructure(guild) {
         ...(overwrites ? { permissionOverwrites: overwrites } : {}),
       });
       created.push(`#${name}`);
+    } else if (applyOverwrites && overwrites) {
+      try {
+        await /** @type {import('discord.js').TextChannel} */ (channel).permissionOverwrites.set(overwrites);
+      } catch (err) {
+        warnings.push(`#${name}: could not update permissions (${err.message})`);
+      }
     }
     if (store.getState().channels[key] !== channel.id) store.setChannel(key, channel.id);
     channels.set(key, /** @type {import('discord.js').TextChannel} */ (channel));
@@ -241,7 +283,9 @@ async function ensureStructure(guild) {
     if (warning) warnings.push(`${tag}: ${warning}`);
     await ensureChannel(tag, signupChannelName(tag), overwrites);
   }
-  await ensureChannel(SOLO_KEY, SOLO_CHANNEL_NAME, undefined);
+  const solo = soloOverwrites(guild);
+  if (solo.warning) warnings.push(`solo: ${solo.warning}`);
+  await ensureChannel(SOLO_KEY, SOLO_CHANNEL_NAME, solo.overwrites);
 
   return { category: /** @type {*} */ (category), channels, created, warnings };
 }
@@ -280,7 +324,7 @@ async function postSignups(guild, match, { leaderId }) {
         date: match.date,
         time,
         title: `Midweek Frontline — ${label}`,
-        description: SIGNUP_DESCRIPTION,
+        description: isSolo ? SOLO_DESCRIPTION : SIGNUP_DESCRIPTION,
         // Mirror the scheduled solo events' rendering; clan events also drop
         // the template's temp_role (the "Solo Signup" role) — only the solo
         // event grants it — and the solo event links its voice channel.
@@ -512,7 +556,7 @@ async function handleAdminSignupsPost(interaction) {
 
 async function handleAdminSignupsSync(interaction) {
   await interaction.deferUpdate();
-  const { created, warnings } = await ensureStructure(interaction.guild);
+  const { created, warnings } = await ensureStructure(interaction.guild, { applyOverwrites: true });
   const lines = created.length ? [`🆕 Created: ${created.join(', ')}`] : ['✅ Structure is up to date.'];
   for (const w of warnings) lines.push(`⚠️ ${w}`);
   await interaction.editReply(buildSignupsPayload(interaction.guild, lines));

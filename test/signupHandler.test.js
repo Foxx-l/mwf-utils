@@ -28,6 +28,7 @@ describe('signupHandler', () => {
     delete process.env.DATA_DIR;
     delete process.env.SIGNUP_MATCH_DAY;
     delete process.env.SIGNUP_LEAD_DAYS;
+    delete process.env.SIGNUP_SOLO_ROLE_ID;
     jest.restoreAllMocks();
   });
 
@@ -117,7 +118,10 @@ describe('signupHandler', () => {
         id: 'guild1',
         roles: {
           everyone: { id: 'everyone' },
-          cache: { find: fn => [{ name: 'OKT', id: 'role-okt' }].find(fn) },
+          cache: {
+            find: fn => [{ name: 'OKT', id: 'role-okt' }, { name: 'Linked', id: 'role-linked' }].find(fn),
+            get: id => [{ name: 'OKT', id: 'role-okt' }, { name: 'Linked', id: 'role-linked' }].find(r => r.id === id) ?? null,
+          },
         },
         members: { me: { id: 'bot' } },
         client: { user: { id: 'bot' } },
@@ -173,6 +177,26 @@ describe('signupHandler', () => {
       // the failed clan is not recorded, so a retry re-attempts only it
       const retry = await handler.postSignups(guild, { date: '2026-08-19' }, { leaderId: 'a' });
       expect(retry.results.filter(r => r.status === 'created')).toHaveLength(1);
+    });
+
+    test('solo channel is gated when SIGNUP_SOLO_ROLE_ID is set, warns when unset', async () => {
+      seedTags([]);
+      const raidhelper = require('../src/utils/raidhelper');
+      jest.spyOn(raidhelper, 'createEvent').mockResolvedValue({ id: 'ev' });
+
+      const openGuild = makeGuild();
+      const open = await handler.postSignups(openGuild, { date: '2026-08-19' }, { leaderId: 'a' });
+      expect(open.warnings.some(w => w.includes('SIGNUP_SOLO_ROLE_ID'))).toBe(true);
+      const soloCreate = openGuild.channels.create.mock.calls.find(([o]) => o.name === 'signup-solo');
+      expect(soloCreate[0].permissionOverwrites).toBeUndefined();
+
+      process.env.SIGNUP_SOLO_ROLE_ID = 'role-linked';
+      const gatedGuild = makeGuild();
+      const gated = await handler.postSignups(gatedGuild, { date: '2026-08-26' }, { leaderId: 'a' });
+      expect(gated.warnings.some(w => w.includes('SIGNUP_SOLO_ROLE_ID'))).toBe(false);
+      const gatedCreate = gatedGuild.channels.create.mock.calls.find(([o]) => o.name === 'signup-solo');
+      expect(gatedCreate[0].permissionOverwrites.some(o => o.id === 'role-linked')).toBe(true);
+      expect(gatedCreate[0].permissionOverwrites.some(o => o.id === 'everyone')).toBe(true);
     });
 
     test('warns when a clan role is missing', async () => {
