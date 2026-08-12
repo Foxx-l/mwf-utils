@@ -228,6 +228,10 @@ async function postSignups(guild, match, { leaderId }) {
         date: match.date,
         time,
         title: `Midweek Frontline — ${label}`,
+        // The template carries create_discordevent:true; with dozens of clan
+        // events per match that would spawn dozens of guild-wide Discord
+        // scheduled events and "new event" notifications — keep it off.
+        advancedSettings: { create_discordevent: false },
       });
       store.recordEvent(match.date, key, { id: event.id, channelId: channel.id });
       results.push({ key, label, status: 'created' });
@@ -424,8 +428,11 @@ async function handleAdminSignupsRefresh(interaction) {
 async function handleAdminSignupsPost(interaction) {
   await interaction.deferUpdate();
   const match = nextMatchDate();
+  // Leader is the bot (or SIGNUP_LEADER_ID), not the clicking admin —
+  // RaidHelper DMs the leader an "event was created!" note per event, which
+  // with one event per clan would flood a human leader's DMs.
   const { results, created, warnings } = await postSignups(interaction.guild, match, {
-    leaderId: interaction.user.id,
+    leaderId: process.env.SIGNUP_LEADER_ID || interaction.client.user.id,
   });
   await interaction.editReply(
     buildSignupsPayload(interaction.guild, [`**Post for ${match.date}:**`, ...resultLines(results, created, warnings)])

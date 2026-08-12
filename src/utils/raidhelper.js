@@ -55,17 +55,21 @@ async function _request(url, init) {
  * Creates a signup event in a channel.
  * @param {{ serverId: string, channelId: string, leaderId: string,
  *           templateId?: string, date: string, time: string,
- *           title?: string, description?: string }} opts
+ *           title?: string, description?: string,
+ *           advancedSettings?: Record<string, unknown> }} opts
  *   `date` is `YYYY-MM-DD`, `time` is 24h `HH:MM` (both server-local as
  *   configured in RaidHelper — matches the guild's Warsaw event times).
+ *   `advancedSettings` entries override the template's (verified live:
+ *   e.g. `{create_discordevent: false}` sticks on the created event).
  * @returns {Promise<{ id: string } & Record<string, any>>} the created event
  */
 async function createEvent(opts) {
-  const { serverId, channelId, leaderId, templateId, date, time, title, description } = opts;
+  const { serverId, channelId, leaderId, templateId, date, time, title, description, advancedSettings } = opts;
   const body = { leaderId, date, time };
   if (templateId) body.templateId = String(templateId);
   if (title) body.title = title;
   if (description) body.description = description;
+  if (advancedSettings) body.advancedSettings = advancedSettings;
 
   const data = await _request(`${API_BASE}/servers/${serverId}/channels/${channelId}/event`, {
     method: 'POST',
