@@ -403,6 +403,28 @@ async function runHealthcheck(client, guildId) {
     }
   }
 
+  // 7b. Per-clan signups: creating the category/channels needs guild-level
+  //     Manage Channels; RaidHelper needs to be identifiable for the private-
+  //     channel overwrites. Only checked when the feature is configured.
+  if (process.env.RAIDHELPER_API_KEY) {
+    total++;
+    if (!guild || !botMember) {
+      issues.push({ kind: 'guild', label: 'signups: Manage Channels', detail: 'guild unreachable', hint: 'see guild issue above' });
+    } else if (!botMember.permissions.has(PermissionFlagsBits.ManageChannels)) {
+      issues.push({
+        kind: 'manage-channels',
+        label: 'signups: Manage Channels',
+        detail: 'bot lacks Manage Channels permission',
+        hint: 'grant Manage Channels in the server role settings — signup category/channel creation will fail without it',
+      });
+    } else {
+      passed++;
+    }
+    if (!process.env.RAIDHELPER_BOT_ID) {
+      notes.push('signups: RAIDHELPER_BOT_ID not set — RaidHelper may not see the private clan channels');
+    }
+  }
+
   // 8. Rotation diagnostics (admin-only healthcheck output).
   if (process.env.MAP_ROTATION_CHANNEL) {
     const rotationState = loadRotationState(process.env.MAP_ROTATION_CHANNEL);

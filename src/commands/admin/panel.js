@@ -21,6 +21,7 @@ const { getMatch }                        = require('../../handlers/interactions
 const { COLORS }                          = require('../../config/theme');
 const { loadLastAction }                 = require('../../utils/lastActionStore');
 const { getNextResetTime }               = require('../../utils/scheduler');
+const { signupsPanelRow }                = require('../../handlers/interactions/signupHandler');
 const pkg = require('../../../package.json');
 
 // ── Required env vars (warns if any are missing) ─────────────────────────────
@@ -432,6 +433,11 @@ function panelMenu() {
           .setDescription("Post the Discord poll for the next match's mid cap.")
           .setEmoji('📊'),
         new StringSelectMenuOptionBuilder()
+          .setValue('signups')
+          .setLabel('Signups — manage')
+          .setDescription('Per-clan RaidHelper signups: post, cancel, auto-post.')
+          .setEmoji('📅'),
+        new StringSelectMenuOptionBuilder()
           .setValue('healthcheck')
           .setLabel('Healthcheck')
           .setDescription('Verify env, channel perms, roles, and cached message IDs.')
@@ -470,7 +476,8 @@ async function buildPanelPayload(client, guildId) {
     serverPairRow('🖥️ **Server Details**', s1, s2, guildId, 'SERVER_DETAILS_CHANNEL'),
     rotationRow(rot, guildId),
     nodesRow(nodes, guildId),
-    midCapRow(midcap, guildId)
+    midCapRow(midcap, guildId),
+    signupsPanelRow()
   ].filter(Boolean);
   if (nextReset) {
     rows.push(`⏰ **Auto-Reset**   <t:${nextReset}:R>`);

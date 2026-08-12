@@ -69,6 +69,16 @@ const {
   handleTeamRepReject,
 } = require('../handlers/interactions/teamrepHandler');
 const {
+  handleAdminSignupsOpen,
+  handleAdminSignupsRefresh,
+  handleAdminSignupsPost,
+  handleAdminSignupsSync,
+  handleAdminSignupsToggle,
+  handleAdminSignupsCancelConfirm,
+  handleAdminSignupsCancel,
+  handleAdminSignupsCancelCancel,
+} = require('../handlers/interactions/signupHandler');
+const {
   handleAdminResetConfirm,
   handleAdminResetCancel,
   handleAdminReset,
@@ -184,8 +194,16 @@ const SELECT_ROUTES = [
     run: async i => { await i.deferUpdate(); return refreshPanelMessage(i); } },
   { id: 'admin_panel_select', value: 'postall',     track: 'Post All Missing', run: handleAdminPostAllMissing },
   { id: 'admin_panel_select', value: 'midcap',      track: 'Post Mid Cap Poll', run: handleAdminPostMidCapPoll },
+  { id: 'admin_panel_select', value: 'signups',     run: handleAdminSignupsOpen },
   { id: 'admin_panel_select', value: 'healthcheck', run: handleAdminHealthcheck },
   { id: 'admin_panel_select', value: 'clearlogs',   run: handleAdminClearLogsConfirm },
+
+  // Signups sub-panel (its own ephemeral message opened from the panel)
+  { id: 'admin_signups_select', value: 'post',    track: 'Post Signups',            run: handleAdminSignupsPost },
+  { id: 'admin_signups_select', value: 'sync',    track: 'Sync Signup Channels',    run: handleAdminSignupsSync },
+  { id: 'admin_signups_select', value: 'toggle',  track: 'Toggle Signup Auto-Post', run: handleAdminSignupsToggle },
+  { id: 'admin_signups_select', value: 'cancel',  run: handleAdminSignupsCancelConfirm },
+  { id: 'admin_signups_select', value: 'refresh', run: handleAdminSignupsRefresh },
 ];
 
 const BUTTON_ROUTES = [
@@ -204,6 +222,8 @@ const BUTTON_ROUTES = [
   { id: 'admin_reset_cancel',      admin: true, run: handleAdminResetCancel },
   { id: 'admin_clearlogs_confirm', admin: true, track: 'Clear Log Channel', run: handleAdminClearLogs },
   { id: 'admin_clearlogs_cancel',  admin: true, run: handleAdminClearLogsCancel },
+  { id: 'admin_signups_cancel_confirm', admin: true, track: 'Cancel Signups', run: handleAdminSignupsCancel },
+  { id: 'admin_signups_cancel_cancel',  admin: true, run: handleAdminSignupsCancelCancel },
   { id: 'admin_healthcheck_autofix', admin: true, run: handleAdminHealthcheckAutofix },
 
   // Confirmed rotation actions

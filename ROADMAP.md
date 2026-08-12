@@ -43,6 +43,20 @@ Items are grouped by priority and complexity.
     list instead of parsed out of free-text messages in a request channel, so members
     can't invent tags for clans they don't belong to.
 
+- Per-clan RaidHelper signups — one permanent category (`SIGNUP_CATEGORY_NAME`,
+  default "MWF Signups") holding a private `#signup-<tag>` channel per clan tag
+  (visible via the role named like the tag) plus a public `#signup-solo`. Each
+  match day gets one RaidHelper event per channel, created through the RaidHelper
+  API (`POST /api/v4/servers/{id}/channels/{id}/event`; templates 24/23 by default).
+  - Managed from `/panel` → Panel utils → **Signups — manage**: post now, cancel
+    (with confirm), auto-post toggle, channel sync, status row in the main panel
+  - Auto-posted by a daily 01:00 Warsaw scheduler when enabled; idempotent per
+    (date, clan) via `data/signups_data.json`, so ticks and clicks never double-post
+  - Feature is enabled by setting `RAIDHELPER_API_KEY`; RaidHelper's bot gets an
+    explicit overwrite in the private channels via `RAIDHELPER_BOT_ID`
+  - Implemented in `src/utils/raidhelper.js`, `src/utils/signupStore.js`,
+    `src/handlers/interactions/signupHandler.js`
+
 ---
 
 ## 💡 Future Ideas (Backlog)

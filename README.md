@@ -36,6 +36,14 @@ details, map rotation, and node info, all driven from a single admin panel.
   match's mid cap. The options are the mid caps of whatever map the rotation has
   scheduled, and the poll closes at kick-off. Who may vote is a channel
   permission, not a bot rule.
+- **Per-clan signups** — a permanent category with one private signup channel
+  per clan tag (visible to the guild role named like the tag) plus a public
+  `#signup-solo`. For each match day a RaidHelper event is created in every
+  channel via the RaidHelper API — either automatically (daily scheduler,
+  toggleable) or on demand from the panel's **Signups** sub-panel, which also
+  handles cancel and channel sync. Needs `RAIDHELPER_API_KEY` (from `/apikey`)
+  and **Manage Channels**; see `.env.example` for the optional knobs
+  (`RAIDHELPER_BOT_ID`, template ids, match day, lead days).
 - **Audit logging** — every admin action is logged to `ADMIN_LOG_CHANNEL`;
   the panel footer shows the most recent action.
 

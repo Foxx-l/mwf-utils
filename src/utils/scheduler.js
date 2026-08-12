@@ -6,6 +6,7 @@ const { COLORS } = require('../config/theme');
 const { getAllFactionRoleIds } = require('../config/factions');
 const { maybeAutoAdvanceRotation } = require('../handlers/interactions/rotationHandler');
 const { refreshMidCapPoll } = require('../handlers/interactions/midCapHandler');
+const { autoPostSignups } = require('../handlers/interactions/signupHandler');
 const { warsawDateParts, warsawToUnix } = require('./warsawTime');
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -130,6 +131,39 @@ function startMidCapScheduler(client) {
   logger.info('Mid cap scheduler started — daily poll check at 00:45 Warsaw time');
 }
 
+/**
+ * Posts the per-clan RaidHelper signups for the next match day.
+ *
+ * Runs daily at 01:00 Europe/Warsaw (after the 00:30/00:45 rotation and mid
+ * cap jobs). The handler is idempotent per (date, clan) and gated on the
+ * store's auto-post switch, so the daily tick is a no-op whenever the events
+ * are already up or the feature is paused from the panel.
+ */
+function startSignupScheduler(client) {
+  if (!process.env.RAIDHELPER_API_KEY) {
+    logger.debug('Signup scheduler not started — RAIDHELPER_API_KEY not set');
+    return;
+  }
+
+  const expression = '0 1 * * *'; // 01:00 daily
+  if (!cron.validate(expression)) {
+    logger.error(`Invalid signup cron expression: ${expression}. Signup scheduler not started.`);
+    return;
+  }
+
+  cron.schedule(expression, async () => {
+    try {
+      const result = await autoPostSignups(client);
+      if (result?.skipped) logger.info(`Signup auto-post skipped — ${result.skipped}`);
+      else if (result?.ok === false) logger.error(`Signup auto-post did not run: ${result.reason || 'unknown reason'}`);
+    } catch (err) {
+      logger.error(`Signup auto-post failed: ${err.message}`);
+    }
+  }, { timezone: 'Europe/Warsaw' });
+
+  logger.info('Signup scheduler started — daily check at 01:00 Warsaw time');
+}
+
 async function resetFactionRoles(client) {
   logger.info('Running scheduled faction role reset...');
 
@@ -215,4 +249,4 @@ async function resetFactionRoles(client) {
   }
 }
 
-module.exports = { startScheduler, startRotationScheduler, startMidCapScheduler, getResetSchedule, getNextResetTime };
+module.exports = { startScheduler, startRotationScheduler, startMidCapScheduler, startSignupScheduler, getResetSchedule, getNextResetTime };
