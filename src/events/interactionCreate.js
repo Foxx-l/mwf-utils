@@ -53,12 +53,12 @@ const {
   handleRotationModalSubmit,
   handleRotationApplyButton,
   handleRotationCancelButton,
-  handleAdminPostRotation,
+  handleAdminSyncRotation,
   handleAdminEditRotation,
   handleAdminAdvanceConfirm,
   handleAdminAdvanceRotation,
-  handleAdminResetConfirm: handleRotationResetConfirm,
-  handleAdminResetRotation: handleRotationReset,
+  handleRotationResetConfirm,
+  handleRotationReset,
   handleAdminUndoRotation,
   handleRotationActionCancel,
 } = require('../handlers/interactions/rotationHandler');
@@ -178,7 +178,7 @@ const SELECT_ROUTES = [
   { id: 'admin_server_select', valuePrefix: 'edit:',
     run: i => handleAdminEditServer(i, i.values[0].split(':')[1]) },
 
-  { id: 'admin_rotnodes_select', value: 'rotation:sync',    track: 'Sync Map Rotation', refresh: true, run: handleAdminPostRotation },
+  { id: 'admin_rotnodes_select', value: 'rotation:sync',    track: 'Sync Map Rotation', refresh: true, run: handleAdminSyncRotation },
   { id: 'admin_rotnodes_select', value: 'rotation:edit',    run: handleAdminEditRotation },
   { id: 'admin_rotnodes_select', value: 'rotation:advance', run: handleAdminAdvanceConfirm },
   { id: 'admin_rotnodes_select', value: 'rotation:reset',   run: handleRotationResetConfirm },
@@ -240,7 +240,7 @@ const BUTTON_ROUTES = [
   // same contract as the equivalent select values — and they must stay above the
   // `admin_` catch-all below, which would otherwise swallow them silently.
   { id: 'admin_faction_reload', admin: true, track: 'Reload Faction Embed', refresh: true, run: handleAdminReload },
-  { id: 'admin_rotation_sync',  admin: true, track: 'Sync Map Rotation',    refresh: true, run: handleAdminPostRotation },
+  { id: 'admin_rotation_sync',  admin: true, track: 'Sync Map Rotation',    refresh: true, run: handleAdminSyncRotation },
   { id: 'admin_nodes_post',     admin: true, track: 'Post Nodes',           refresh: true, run: handleAdminPostNodes },
   { id: 'admin_midcap_post',    admin: true, track: 'Post Mid Cap Poll',    refresh: true, run: handleAdminPostMidCapPoll },
   { id: 'admin_signups_post',   admin: true, track: 'Post Signups',         refresh: true, run: handleAdminSignupsPost },

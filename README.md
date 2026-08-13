@@ -9,8 +9,8 @@ details, map rotation, and node info, all driven from a single admin panel.
   S2, with a per-user cooldown to prevent role-swap spam.
 - **Weekly auto-reset** — clears all faction roles every Wednesday at
   22:00 Europe/Warsaw, once the match has been played (configurable).
-- **`/panel` admin control** — per-feature dropdowns for Faction, Lineup,
-  Server Details, Map Rotation & Nodes, and Panel utilities.
+- **`/panel` admin control** — one status row per feature with its own action
+  button, grouped dropdowns for the rest, and a redraw after every action.
 - **Lineup posting** (`/lineup`) — post a pre-made lineup image for S1 or S2
   with auto-calculated Wednesday timestamps.
 - **Server details** — post and edit server name/password for S1 and S2
@@ -40,7 +40,7 @@ details, map rotation, and node info, all driven from a single admin panel.
   per clan tag (visible to the guild role named like the tag) plus a public
   `#signup-solo`. For each match day a RaidHelper event is created in every
   channel via the RaidHelper API — either automatically (right after each match,
-  toggleable) or on demand from the panel's **Signups** sub-panel, which also
+  toggleable) or on demand from the panel's **Signups** row, which also
   handles cancel and channel sync. Needs `RAIDHELPER_API_KEY` (from `/apikey`)
   and **Manage Channels**; see `.env.example` for the optional knobs
   (`RAIDHELPER_BOT_ID`, template ids, match day, lead days).
@@ -142,19 +142,49 @@ the faction embed, clearing logs, running the healthcheck) is done from
 
 ## Panel actions
 
-The panel shows one status row per feature (🟢 posted, 🟡 partial, 🔴 not
-posted, ↗ jump link) and five dropdowns:
+The panel is one ephemeral message with a status row per feature (🟢 posted,
+🟡 partial, 🔴 not posted, ↗ jump to the message) plus the next auto-reset,
+anything not configured, and missing env vars. It **redraws itself** after every
+action that changes what it shows, and the footer names the last admin action.
 
-- 🛡️ **Faction Embed** — Reload, Reset Roles
-- 📋 **Lineup** — Edit caption S1/S2
-- 🖥️ **Server Details** — Post/Edit S1/S2
-- 🗺️ 📍 **Map Rotation & Nodes** — Post/Edit Rotation, Advance (+1 month),
-  Post/Edit Nodes
-- 🛠️ **Panel** — Refresh Status, Post All Missing, Post Mid Cap Poll,
-  Healthcheck, Clear Log Channel
+A feature that has no env configured shows no row and offers no actions — it is
+listed once under "Not configured" instead. So 🔴 always means "set up, but not
+posted", which is exactly what **Post all missing** acts on. Refresh,
+Healthcheck and Post all missing are never hidden, so a broken `.env` stays
+diagnosable.
 
-Destructive actions (Reset Roles, Clear Log Channel) require ephemeral
-confirmation and are rate-limited per user.
+With `PANEL_V2=1` (see below) each feature row carries its own one-click
+button — Faction *Reload*, Rotation *Sync*, Nodes *Post*, Mid Cap *Poll*,
+Signups *Post* — and the rest are grouped into four dropdowns:
+
+- 📋 🖥️ 📍 **Content** — Edit lineup S1/S2, Post/Edit server details S1/S2, Edit nodes
+- 🗺️ **Map Rotation** — Edit, Advance (+1 month), Reset to current month, Undo
+- 📅 **Signups** — Sync channels, Toggle auto-post, Cancel next match
+- ⚠️ **Destructive** — Reset Roles, Clear Log Channel
+
+plus a **Refresh · Healthcheck · Post all missing** button row. Without
+`PANEL_V2` the panel renders as a classic embed with the original five
+dropdowns, which between them still reach every action.
+
+Destructive actions (Reset Roles, Clear Log Channel, Cancel signups) require
+ephemeral confirmation; Reset Roles and Clear Log Channel are also rate-limited
+per user.
+
+### Panel layout (`PANEL_V2`)
+
+`PANEL_V2=1` switches `/panel` to a Discord **Components V2** container: an
+accent stripe instead of an embed, a button on each feature row, and no
+five-row ceiling — which is why the per-clan signups fit on the panel itself
+rather than in a second message. Unset it and the embed layout comes back; no
+rebuild needed, `docker compose` reads `.env` on restart.
+
+Two things worth knowing if you edit the panel: a Components V2 message may
+carry no embeds and no `content`, and its flag has to be set on the reply *and*
+every edit — [`src/panel/payload.js`](./src/panel/payload.js) is the only place
+that attaches it. The container is capped at 40 components (the panel uses 35);
+[`src/panel/budget.js`](./src/panel/budget.js) counts them before sending,
+because discord.js does not and Discord answers an over-budget message with a
+bare 400.
 
 ## Clan tags
 
@@ -273,10 +303,37 @@ file, add the header and fix what `npm run typecheck` reports.
 
 Interaction routing is table-driven (`src/events/interactionCreate.js`):
 adding a button/modal/select flow means adding a row to `BUTTON_ROUTES`,
-`MODAL_ROUTES` or `SELECT_ROUTES` — the dispatcher, the admin gate and the
-audit-log wrapping are shared. Slash commands dispatch by name into the command
-module; a command with autocompleted options exports `autocomplete(interaction)`
-next to `execute`.
+`MODAL_ROUTES` or `SELECT_ROUTES` — the dispatcher, the admin gate, the
+audit-log entry and the panel redraw are shared. A route carries `refresh: true`
+when its handler changes something the panel shows; `admin_*` button routes must
+sit **above** the `admin_` catch-all, which matches by prefix. Slash commands
+dispatch by name into the command module; a command with autocompleted options
+exports `autocomplete(interaction)` next to `execute`.
+
+### The panel
+
+`/panel` is a thin command; everything it shows and does lives in
+[`src/panel/`](./src/panel/):
+
+| File | Owns |
+|---|---|
+| `features.js` | which features exist and what env configures each one |
+| `probes.js` | what is actually posted in Discord (reads only — no cache writes) |
+| `rows.js` | the status line per feature, shared by both renderers |
+| `controls.js` | every customId, as data: menus per layout, section buttons |
+| `render.v1.js` / `render.v2.js` | the embed layout and the container layout |
+| `payload.js` | probe → view → renderer, and the only place the V2 flag is set |
+| `refresh.js` | redrawing the panel after an action |
+| `budget.js` | counting components before Discord rejects them |
+| `respond.js` | how an action acks and reports, so the panel stays editable |
+
+Two rules that are easy to break silently. A panel action must ack with
+`deferUpdate()` and answer with an ephemeral `followUp()` — use
+`ackPanelAction` / `reportPanelResult` from `respond.js` rather than
+`deferReply`/`editReply`, because after a `deferReply` the interaction's
+"@original" message is the handler's own reply, so the redraw would overwrite
+the admin's result. And a confirm dialog or an edit preview lives on its own
+message, so it can neither redraw the panel nor `update()` it.
 
 ## License
 

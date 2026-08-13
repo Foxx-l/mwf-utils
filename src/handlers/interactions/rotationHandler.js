@@ -356,7 +356,7 @@ async function handleRotationCancelButton(interaction) {
   return handleCancelInteraction(interaction, PENDING_KIND, '❎ Rotation edit discarded.');
 }
 
-async function handleAdminPostRotation(interaction) {
+async function handleAdminSyncRotation(interaction) {
   await ackPanelAction(interaction);
   const result = await ensureRotationPosted(interaction.client);
   if (!result.ok) return reportPanelResult(interaction, { embeds: [createErrorEmbed(result.busy ? 'Busy' : 'Post failed', result.reason)] });
@@ -427,7 +427,7 @@ async function handleAdminAdvanceConfirm(interaction) {
   });
 }
 
-async function handleAdminResetConfirm(interaction) {
+async function handleRotationResetConfirm(interaction) {
   return interaction.reply({
     embeds: [new EmbedBuilder().setColor(COLORS.warning).setTitle('Reset Rotation?')
       .setDescription('This rebuilds the current and next Warsaw months from the map cycle. The current state is kept in Undo history.')],
@@ -443,7 +443,7 @@ async function handleRotationActionCancel(interaction) {
   return interaction.update({ content: '❎ Rotation action cancelled.', embeds: [], components: [] });
 }
 
-async function handleAdminResetRotation(interaction) {
+async function handleRotationReset(interaction) {
   await interaction.update({ content: '⏳ Resetting rotation…', embeds: [], components: [] });
   const result = await withRotationLock(async () => {
     const channelId = getMapRotationChannelId();
@@ -498,12 +498,12 @@ module.exports = {
   handleRotationModalSubmit,
   handleRotationApplyButton,
   handleRotationCancelButton,
-  handleAdminPostRotation,
+  handleAdminSyncRotation,
   handleAdminEditRotation,
   handleAdminAdvanceConfirm,
   handleAdminAdvanceRotation,
-  handleAdminResetConfirm,
-  handleAdminResetRotation,
+  handleRotationResetConfirm,
+  handleRotationReset,
   handleAdminUndoRotation,
   handleRotationActionCancel,
   maybeAutoAdvanceRotation,

@@ -9,7 +9,11 @@ Items are grouped by priority and complexity.
 
 - Faction selection embed (Allies / Axis buttons with role assignment)
 - Custom emoji auto-upload on startup (ALLIES, AXIS)
-- Admin panel (`/panel`) — Reset Roles, Reload Embed, Clear Logs
+- Admin panel (`/panel`) — a status row per feature with its own action button
+  (Components V2 container behind `PANEL_V2`; classic embed otherwise), grouped
+  dropdowns for the rest, and a redraw after every action. Features with no env
+  configured hide both their row and their actions. Implementation lives in
+  `src/panel/`.
 - Weekly auto-reset of faction roles every Wednesday at 22:00 (Warsaw time),
   after the match
 - Admin log channel — logs all faction selections and admin actions
@@ -51,8 +55,8 @@ Items are grouped by priority and complexity.
   (visible via the role named like the tag) plus a public `#signup-solo`. Each
   match day gets one RaidHelper event per channel, created through the RaidHelper
   API (`POST /api/v4/servers/{id}/channels/{id}/event`; templates 24/23 by default).
-  - Managed from `/panel` → Panel utils → **Signups — manage**: post now, cancel
-    (with confirm), auto-post toggle, channel sync, status row in the main panel
+  - Managed from the panel's **Signups** row: Post as the row's button, plus
+    channel sync, auto-post toggle and cancel (with confirm) in its dropdown
   - Auto-posted in the post-match slot (22:10 Warsaw by default) when enabled;
     idempotent per (date, clan) via `data/signups_data.json`, so ticks and clicks
     never double-post

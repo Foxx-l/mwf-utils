@@ -33,14 +33,17 @@
 const { PermissionFlagsBits } = require('discord.js');
 const {
   loadLineupData,
+  saveLineupData,
   clearLineupData,
   loadServerData,
+  saveServerData,
   clearServerData,
 } = require('./lineupStore');
 const { loadRotationMsgId, clearRotationMsgId, loadRotationState, rotationHistoryCount } = require('./rotationStore');
 const { monthHeader, MAP_CYCLE, warsawDateParts, validateState } = require('./rotationState');
 const { FACTIONS } = require('../config/factions');
-const { HEALTHCHECK_ENV_VARS: REQUIRED_ENV_VARS } = require('../config/constants');
+const { HEALTHCHECK_ENV_VARS: REQUIRED_ENV_VARS, EMBED_TITLES } = require('../config/constants');
+const { findLastBotMessage, hasEmbedTitle, hasLineupImageFor } = require('../handlers/interactions/shared');
 const { loadTags } = require('./tagStore');
 const { matchKey, loadPoll } = require('./midCapStore');
 const { describeMidCapPoll } = require('../handlers/interactions/midCapHandler');
@@ -155,6 +158,62 @@ async function healStaleCache(client) {
     }
   }
   return cleared;
+}
+
+/**
+ * The other direction: an embed is posted but nothing points at it, so the next
+ * Edit has to scan the channel to find it. Drawing the panel used to seed these
+ * pointers as a side effect; making it an explicit diagnostic keeps the write out
+ * of the render path, where it ran on every refresh.
+ *
+ * Only fills gaps — an existing pointer is left alone, and healStaleCache is
+ * what removes a dead one.
+ */
+async function seedMissingPointers(client) {
+  let seeded = 0;
+
+  const targets = [
+    {
+      channelId: process.env.LINEUP_CHANNEL,
+      load: loadLineupData,
+      predicate: server => hasLineupImageFor(server),
+      save: (channelId, message, server) => saveLineupData(
+        channelId, message.id, message.embeds[0]?.description || '', server
+      ),
+    },
+    {
+      channelId: process.env.SERVER_DETAILS_CHANNEL,
+      load: loadServerData,
+      predicate: server => hasEmbedTitle(EMBED_TITLES.serverDetails(server)),
+      save: (channelId, message, server) => {
+        const fields = message.embeds[0]?.fields || [];
+        const name = fields.find(f => f.name.includes('Server Name'))?.value || 'Unknown';
+        const password = fields.find(f => f.name.includes('Password'))?.value || 'Unknown';
+        saveServerData(channelId, message.id, name, password, server);
+      },
+    },
+  ];
+
+  for (const target of targets) {
+    if (!target.channelId) continue;
+    let channel;
+    try {
+      channel = await client.channels.fetch(target.channelId);
+    } catch (_) {
+      continue;
+    }
+    if (!channel?.isTextBased()) continue;
+
+    for (const server of ['S1', 'S2']) {
+      if (target.load(target.channelId, server)?.messageId) continue;
+      const message = await findLastBotMessage(channel, target.predicate(server)).catch(() => null);
+      if (!message) continue;
+      target.save(target.channelId, message, server);
+      seeded++;
+    }
+  }
+
+  return seeded;
 }
 
 /**
@@ -442,7 +501,7 @@ async function runHealthcheck(client, guildId) {
     }
   }
 
-  // 9. Stale cache self-heal (silent; reported as a note, not a failure)
+  // 9. Cache hygiene, both directions (silent; reported as notes, not failures)
   try {
     const cleared = await healStaleCache(client);
     if (cleared > 0) {
@@ -450,7 +509,14 @@ async function runHealthcheck(client, guildId) {
     }
   } catch (_) { /* non-fatal */ }
 
+  try {
+    const seeded = await seedMissingPointers(client);
+    if (seeded > 0) {
+      notes.push(`found ${seeded} posted embed(s) the cache had lost track of, and recorded them`);
+    }
+  } catch (_) { /* non-fatal */ }
+
   return { passed, total, issues, notes };
 }
 
-module.exports = { runHealthcheck };
+module.exports = { runHealthcheck, seedMissingPointers };
