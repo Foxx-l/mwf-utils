@@ -5,12 +5,12 @@
  * One channel per clan tag (visible only to the guild role named exactly like
  * the tag) plus a public solo channel; each match day gets one RaidHelper
  * event per channel, created via the RaidHelper API (`utils/raidhelper.js`).
- * Posting is idempotent through `utils/signupStore.js`, so the daily
- * scheduler tick and the panel's "Post now" can never double-post.
+ * Posting is idempotent through `utils/signupStore.js`, so the scheduler tick
+ * and the panel's "Post now" can never double-post.
  *
  * Entry points: the panel's Signups sub-panel (opened from the Panel utils
  * dropdown — the main panel already uses all five component rows) and
- * `autoPostSignups()` called by the scheduler.
+ * `autoPostSignups()`, called by the scheduler in the post-match slot.
  */
 
 const {
@@ -371,8 +371,10 @@ async function cancelSignups(date) {
 // ── Scheduler entry point ────────────────────────────────────────────────────
 
 /**
- * Whether the daily tick should post now: auto-post on, the next match date
+ * Whether the scheduler tick should post now: auto-post on, the next match date
  * within SIGNUP_LEAD_DAYS (default 7), and at least one channel un-posted.
+ * The post-match tick runs after the day's match, so `nextMatchDate` has already
+ * rolled to next week's — a full week of lead, hence the 7-day default.
  * Exposed for tests.
  * @param {Date} [now]
  */
@@ -391,7 +393,7 @@ function autoPostDue(now = new Date()) {
 }
 
 /**
- * The daily scheduler tick: posts the next match's signups when due.
+ * The scheduler tick: posts the next match's signups when due.
  * Leader is SIGNUP_LEADER_ID or the bot itself (the API accepts a bot id).
  * @param {import('discord.js').Client} client
  */
@@ -456,7 +458,7 @@ function buildSignupsPayload(guild, extraLines = []) {
   const rows = [
     `📅 **Next match**   ${match.date}, briefing ${signupEventTime()}`,
     `📮 **Posted**   ${postedCount}/${wanted.length} (${tags.length} clans + solo)`,
-    `🔁 **Auto-post**   ${state.auto_post ? '🟢 on (daily check)' : '🔴 off'}`,
+    `🔁 **Auto-post**   ${state.auto_post ? '🟢 on (after each match)' : '🔴 off'}`,
     `🗂️ **Category**   ${category ? `🟢 ${category.name}` : '🔴 not created yet'}`,
     `🏷️ **Clans**   ${tags.length ? tags.join(', ') : '— none (add tags first)'}`,
   ];
@@ -487,7 +489,7 @@ function buildSignupsPayload(guild, extraLines = []) {
         new StringSelectMenuOptionBuilder()
           .setValue('toggle')
           .setLabel(state.auto_post ? 'Disable auto-post' : 'Enable auto-post')
-          .setDescription('Daily check posts the next match automatically.')
+          .setDescription('Posts the next match by itself, right after each match.')
           .setEmoji(state.auto_post ? '⏸️' : '▶️'),
         new StringSelectMenuOptionBuilder()
           .setValue('cancel')

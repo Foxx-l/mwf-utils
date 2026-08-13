@@ -8,7 +8,7 @@ details, map rotation, and node info, all driven from a single admin panel.
 - **Faction selection** — persistent embed with Allies/Axis buttons for S1 and
   S2, with a per-user cooldown to prevent role-swap spam.
 - **Weekly auto-reset** — clears all faction roles every Wednesday at
-  22:00 Europe/Warsaw (configurable).
+  22:00 Europe/Warsaw, once the match has been played (configurable).
 - **`/panel` admin control** — per-feature dropdowns for Faction, Lineup,
   Server Details, Map Rotation & Nodes, and Panel utilities.
 - **Lineup posting** (`/lineup`) — post a pre-made lineup image for S1 or S2
@@ -39,7 +39,7 @@ details, map rotation, and node info, all driven from a single admin panel.
 - **Per-clan signups** — a permanent category with one private signup channel
   per clan tag (visible to the guild role named like the tag) plus a public
   `#signup-solo`. For each match day a RaidHelper event is created in every
-  channel via the RaidHelper API — either automatically (daily scheduler,
+  channel via the RaidHelper API — either automatically (right after each match,
   toggleable) or on demand from the panel's **Signups** sub-panel, which also
   handles cancel and channel sync. Needs `RAIDHELPER_API_KEY` (from `/apikey`)
   and **Manage Channels**; see `.env.example` for the optional knobs
@@ -203,9 +203,12 @@ all three).
   deleted, it is reposted.
 - When a new match's poll goes up, the previous match's poll is ended so its
   result is final.
-- A daily job at 00:45 Warsaw posts the poll for the next match, so the morning
-  after a match the new poll appears by itself. Nothing is posted on startup —
-  restarting the bot never publishes a poll unasked.
+- The scheduler posts the poll for the next match in the post-match slot (22:05
+  Warsaw by default), so the new vote is up within minutes of the match ending.
+  For that tick a match that has kicked off counts as played, otherwise the
+  rotation's 6-hour live window would make the finished match stand in for the
+  next one. Nothing is posted on startup — restarting the bot never publishes a
+  poll unasked.
 - Nothing is posted once a match has started (`live`), and nothing is posted for
   a map with no mid caps configured; both are reported by the healthcheck.
 
@@ -231,14 +234,30 @@ Do not run `npm start` at the same time as PM2.
 
 ## Scheduled jobs
 
-- **Weekly reset** — removes Allies/Axis S1+S2 roles every `RESET_DAY` at
-  `RESET_HOUR`:00 Warsaw time (default Wednesday 22:00).
-- **Rotation auto-advance** — daily at 00:30 Warsaw; advances at calendar-month
-  boundaries and catches up multiple missed months in one operation (maximum
-  24 per run), then updates Discord once.
-- **Mid cap poll** — daily at 00:45 Warsaw (after the rotation advance); posts
-  the poll for the next match if it isn't up yet. Skipped when `MIDCAP_CHANNEL`
-  is unset.
+Everything that follows the match schedule runs in the **post-match slot**:
+`RESET_DAY` at `RESET_HOUR`:00 Warsaw time, default Wednesday 22:00 — two hours
+after the 20:00 kick-off, so the match is over. `RESET_HOUR` is the single knob;
+move it and every job below moves with it.
+
+- **Weekly reset** (`:00`) — removes the Allies/Axis S1+S2 roles on `RESET_DAY`
+  only.
+- **Mid cap poll** (`:05`) — posts the poll for the *next* match, so the new vote
+  is up minutes after the current match ends. Skipped when `MIDCAP_CHANNEL` is
+  unset.
+- **Per-clan signups** (`:10`) — creates next match day's RaidHelper events when
+  auto-post is on. Skipped when `RAIDHELPER_API_KEY` is unset.
+
+The reset is weekly; the poll and the signup checks run every day at their slot
+because both are idempotent — on a day where nothing is missing they do nothing,
+and that is what puts the poll and the events online if the bot was down during
+the slot. The minute offsets keep the reset's long role-removal loop from
+competing with the other two for API budget.
+
+One job is not match-driven and keeps its own time:
+
+- **Rotation auto-advance** — daily at 00:30 Warsaw; it tracks calendar months,
+  not matches. Advances at month boundaries and catches up multiple missed months
+  in one operation (maximum 24 per run), then updates Discord once.
 
 ## Development
 

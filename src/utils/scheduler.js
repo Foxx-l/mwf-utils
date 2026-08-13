@@ -1,4 +1,16 @@
 // @ts-check
+/**
+ * scheduler.js — Every cron job the bot runs, on the Europe/Warsaw clock.
+ *
+ * Whatever follows the match schedule runs in the **post-match slot**: RESET_DAY
+ * at RESET_HOUR (default Wednesday 22:00), two hours after the 20:00 kick-off, so
+ * the match is over. The faction reset clears that week's roles, and the mid cap
+ * poll and the per-clan signups publish for the *next* match while everyone is
+ * still around. RESET_HOUR is the single knob for all three.
+ *
+ * The rotation auto-advance is the exception: it tracks calendar months rather
+ * than matches, so it keeps its own early-morning time.
+ */
 const cron = require('node-cron');
 const { EmbedBuilder } = require('discord.js');
 const logger = require('./logger');
@@ -7,9 +19,29 @@ const { getAllFactionRoleIds } = require('../config/factions');
 const { maybeAutoAdvanceRotation } = require('../handlers/interactions/rotationHandler');
 const { refreshMidCapPoll } = require('../handlers/interactions/midCapHandler');
 const { autoPostSignups } = require('../handlers/interactions/signupHandler');
-const { warsawDateParts, warsawToUnix } = require('./warsawTime');
+const { TIME_ZONE, warsawDateParts, warsawToUnix } = require('./warsawTime');
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// Match day and the hour the match is over: kick-off is 20:00 (see
+// ROTATION_EVENT_TIME), so 22:00 is the post-match slot.
+const DEFAULT_RESET_DAY  = 3;  // Wednesday
+const DEFAULT_RESET_HOUR = 22;
+
+/**
+ * Minutes past the post-match hour per job. The reset runs on the dot; the jobs
+ * that publish for the *next* match follow a few minutes later so the reset's
+ * long role-removal loop is not competing with them for API budget.
+ */
+const POST_MATCH_MINUTES = Object.freeze({ reset: 0, midCap: 5, signups: 10 });
+
+/**
+ * For the post-match jobs, any match that has kicked off counts as played — the
+ * poll they post is the next match's, not the one that just ended. (The
+ * rotation's own live window deliberately keeps a finished match "current" for
+ * hours, which is right for the panel display but wrong here.)
+ */
+const POST_MATCH_LIVE_WINDOW_HOURS = 0;
 
 /**
  * Parses RESET_DAY (0=Sun … 6=Sat, default 3) and RESET_HOUR (default 22)
@@ -18,11 +50,54 @@ const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
  * display both read from here so they can never drift apart.
  */
 function getResetSchedule() {
-  const day  = Number.parseInt(process.env.RESET_DAY  ?? '3', 10);
-  const hour = Number.parseInt(process.env.RESET_HOUR ?? '22', 10);
+  const day  = Number.parseInt(process.env.RESET_DAY  ?? String(DEFAULT_RESET_DAY), 10);
+  const hour = Number.parseInt(process.env.RESET_HOUR ?? String(DEFAULT_RESET_HOUR), 10);
   if (!Number.isInteger(day) || day < 0 || day > 6) return null;
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) return null;
   return { day, hour };
+}
+
+/**
+ * The hour of the post-match slot: RESET_HOUR, shared by every match-driven job
+ * so they move together when the match time changes. Falls back to the default
+ * when RESET_HOUR is unusable — a typo there must not silently un-schedule the
+ * poll and the signups, and `startScheduler` already reports the bad value.
+ */
+function postMatchHour() {
+  return getResetSchedule()?.hour ?? DEFAULT_RESET_HOUR;
+}
+
+/**
+ * Cron expression for a post-match job: `minute` past the post-match hour on
+ * `day`. `'*'` (the default) runs it every day — the publish-if-missing jobs use
+ * that so a slot missed to downtime is picked up at the same sane hour instead
+ * of waiting a full week.
+ * @param {number} minute
+ * @param {number|'*'} [day]
+ */
+function postMatchCron(minute, day = '*') {
+  return `${minute} ${postMatchHour()} * * ${day}`;
+}
+
+/** Warsaw `HH:MM` a post-match job fires at, for the startup log lines. */
+function postMatchTimeLabel(minute) {
+  return `${postMatchHour()}:${String(minute).padStart(2, '0')}`;
+}
+
+/**
+ * Registers one Warsaw-time cron job. Returns false (having logged why) when the
+ * expression is unusable, so callers can skip their "started" line.
+ * @param {string} label
+ * @param {string} expression
+ * @param {() => void|Promise<void>} task
+ */
+function startCron(label, expression, task) {
+  if (!cron.validate(expression)) {
+    logger.error(`Invalid ${label} cron expression: ${expression}. ${label} scheduler not started.`);
+    return false;
+  }
+  cron.schedule(expression, task, { timezone: TIME_ZONE });
+  return true;
 }
 
 /**
@@ -48,46 +123,35 @@ function getNextResetTime(now = new Date()) {
 }
 
 /**
- * Starts the weekly faction role reset scheduler.
- * Default: every Wednesday at 22:00 Europe/Warsaw.
- * Configurable via RESET_DAY (0=Sun, 3=Wed) and RESET_HOUR in .env
+ * Starts the weekly faction role reset — the first job of the post-match slot.
+ * Default: every Wednesday at 22:00 Europe/Warsaw, once the match has been
+ * played. Configurable via RESET_DAY (0=Sun, 3=Wed) and RESET_HOUR in .env.
  */
 function startScheduler(client) {
   const schedule = getResetSchedule();
   if (!schedule) {
-    logger.error(`Invalid reset schedule: RESET_DAY=${process.env.RESET_DAY ?? '3'}, RESET_HOUR=${process.env.RESET_HOUR ?? '22'}. Scheduler not started.`);
+    logger.error(`Invalid reset schedule: RESET_DAY=${process.env.RESET_DAY ?? String(DEFAULT_RESET_DAY)}, RESET_HOUR=${process.env.RESET_HOUR ?? String(DEFAULT_RESET_HOUR)}. Scheduler not started.`);
     return;
   }
   const { day, hour } = schedule;
 
-  const expression = `0 ${hour} * * ${day}`;
-  if (!cron.validate(expression)) {
-    logger.error(`Invalid cron expression: ${expression}. Scheduler not started.`);
-    return;
-  }
+  const expression = postMatchCron(POST_MATCH_MINUTES.reset, day);
+  if (!startCron('reset', expression, () => resetFactionRoles(client))) return;
 
-  const dayName = DAY_NAMES[day];
-
-  cron.schedule(expression, () => resetFactionRoles(client), {
-    timezone: 'Europe/Warsaw'
-  });
-
-  logger.info(`Scheduler started — auto-reset every ${dayName} at ${hour}:00 Warsaw time`);
+  logger.info(`Scheduler started — auto-reset every ${DAY_NAMES[day]} at ${hour}:00 Warsaw time`);
 }
 
 /**
  * Starts the daily rotation auto-advance check.
- * Runs every day at 00:30 Europe/Warsaw. When month1 of the rotation embed
- * is entirely in the past, the rolling window advances by one month.
+ *
+ * The only job that is *not* tied to the post-match slot: it tracks calendar
+ * months, not matches, so it keeps running early each day and the window is
+ * already rolled over by the time anything reads it. When month1 of the
+ * rotation embed is entirely in the past, the window advances by one month.
  */
 function startRotationScheduler(client) {
   const expression = '30 0 * * *'; // 00:30 daily
-  if (!cron.validate(expression)) {
-    logger.error(`Invalid rotation cron expression: ${expression}. Rotation scheduler not started.`);
-    return;
-  }
-
-  cron.schedule(expression, async () => {
+  const task = async () => {
     try {
       const result = await maybeAutoAdvanceRotation(client);
       if (result?.skipped) {
@@ -98,7 +162,8 @@ function startRotationScheduler(client) {
     } catch (err) {
       logger.error(`Rotation auto-advance failed: ${err.message}`);
     }
-  }, { timezone: 'Europe/Warsaw' });
+  };
+  if (!startCron('rotation', expression, task)) return;
 
   logger.info('Rotation scheduler started — daily check at 00:30 Warsaw time');
 }
@@ -106,10 +171,11 @@ function startRotationScheduler(client) {
 /**
  * Posts the Mid Cap poll for the next match.
  *
- * Runs daily at 00:45 Europe/Warsaw — after the 00:30 rotation advance, so a
- * month rollover is already reflected in the rotation state. Posting is
- * idempotent, so the job is a no-op on the days the poll is already up: the
- * morning after a match it puts the next one's poll online by itself.
+ * Runs in the post-match slot (default 22:05 Warsaw), so the vote for the next
+ * match opens right after the current one has been played rather than in the
+ * middle of the night. The check runs every day because posting is idempotent:
+ * on a day the poll is already up it does nothing, which is also what puts the
+ * poll online when the bot was down during the slot.
  */
 function startMidCapScheduler(client) {
   if (!process.env.MIDCAP_CHANNEL) {
@@ -117,27 +183,24 @@ function startMidCapScheduler(client) {
     return;
   }
 
-  const expression = '45 0 * * *'; // 00:45 daily
-  if (!cron.validate(expression)) {
-    logger.error(`Invalid mid cap cron expression: ${expression}. Mid cap scheduler not started.`);
-    return;
-  }
-
-  cron.schedule(expression, async () => {
-    const result = await refreshMidCapPoll(client);
+  const expression = postMatchCron(POST_MATCH_MINUTES.midCap);
+  const task = async () => {
+    const result = await refreshMidCapPoll(client, { liveWindowHours: POST_MATCH_LIVE_WINDOW_HOURS });
     if (!result?.ok) logger.info(`Mid cap poll not posted — ${result?.reason || 'unknown reason'}`);
-  }, { timezone: 'Europe/Warsaw' });
+  };
+  if (!startCron('mid cap', expression, task)) return;
 
-  logger.info('Mid cap scheduler started — daily poll check at 00:45 Warsaw time');
+  logger.info(`Mid cap scheduler started — poll check daily at ${postMatchTimeLabel(POST_MATCH_MINUTES.midCap)} Warsaw time, after the match`);
 }
 
 /**
  * Posts the per-clan RaidHelper signups for the next match day.
  *
- * Runs daily at 01:00 Europe/Warsaw (after the 00:30/00:45 rotation and mid
- * cap jobs). The handler is idempotent per (date, clan) and gated on the
- * store's auto-post switch, so the daily tick is a no-op whenever the events
- * are already up or the feature is paused from the panel.
+ * Runs in the post-match slot (default 22:10 Warsaw), a few minutes behind the
+ * reset and the mid cap poll, so next week's signups go up while everyone is
+ * still around from the match that just ended. The handler is idempotent per
+ * (date, clan) and gated on the store's auto-post switch, so the daily tick is a
+ * no-op whenever the events are already up or the feature is paused.
  */
 function startSignupScheduler(client) {
   if (!process.env.RAIDHELPER_API_KEY) {
@@ -145,13 +208,8 @@ function startSignupScheduler(client) {
     return;
   }
 
-  const expression = '0 1 * * *'; // 01:00 daily
-  if (!cron.validate(expression)) {
-    logger.error(`Invalid signup cron expression: ${expression}. Signup scheduler not started.`);
-    return;
-  }
-
-  cron.schedule(expression, async () => {
+  const expression = postMatchCron(POST_MATCH_MINUTES.signups);
+  const task = async () => {
     try {
       const result = await autoPostSignups(client);
       if (result?.skipped) logger.info(`Signup auto-post skipped — ${result.skipped}`);
@@ -159,9 +217,10 @@ function startSignupScheduler(client) {
     } catch (err) {
       logger.error(`Signup auto-post failed: ${err.message}`);
     }
-  }, { timezone: 'Europe/Warsaw' });
+  };
+  if (!startCron('signup', expression, task)) return;
 
-  logger.info('Signup scheduler started — daily check at 01:00 Warsaw time');
+  logger.info(`Signup scheduler started — check daily at ${postMatchTimeLabel(POST_MATCH_MINUTES.signups)} Warsaw time, after the match`);
 }
 
 async function resetFactionRoles(client) {
@@ -249,4 +308,14 @@ async function resetFactionRoles(client) {
   }
 }
 
-module.exports = { startScheduler, startRotationScheduler, startMidCapScheduler, startSignupScheduler, getResetSchedule, getNextResetTime };
+module.exports = {
+  startScheduler,
+  startRotationScheduler,
+  startMidCapScheduler,
+  startSignupScheduler,
+  getResetSchedule,
+  getNextResetTime,
+  postMatchCron,
+  POST_MATCH_MINUTES,
+  POST_MATCH_LIVE_WINDOW_HOURS,
+};

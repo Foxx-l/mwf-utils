@@ -116,6 +116,21 @@ describe('describeMidCapPoll', () => {
     expect(plan.reason).toMatch(/already started/);
   });
 
+  test('the post-match tick looks past the match that just ended', () => {
+    writeState();
+    // Wed 2026-08-12, 22:05 Warsaw: Carentan kicked off at 20:00 and is over,
+    // but the rotation's 6-hour live window still calls it the current match.
+    const asPanelSeesIt = handler.describeMidCapPoll(warsaw(2026, 7, 12, 22, 5));
+    expect(asPanelSeesIt).toMatchObject({ ok: false, reason: expect.stringMatching(/already started/) });
+
+    // With no live window — what the scheduler passes — the poll is the next
+    // match's, so the vote opens right after the match instead of a day later.
+    const plan = handler.describeMidCapPoll(warsaw(2026, 7, 12, 22, 5), { liveWindowHours: 0 });
+    expect(plan.ok).toBe(true);
+    expect(plan.match).toMatchObject({ date: '2026-09-02', map: 'Omaha', live: false });
+    expect(plan.poll.duration).toBeGreaterThan(0);
+  });
+
   test('refuses a map with no mid caps, naming it', () => {
     writeState([{ date: '2026-08-12', time: '20:00', map: 'Kokoda Trail' }], []);
     const plan = handler.describeMidCapPoll(warsaw(2026, 7, 10, 12));

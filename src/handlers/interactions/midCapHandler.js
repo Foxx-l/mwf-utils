@@ -39,11 +39,19 @@ const UNKNOWN_MESSAGE = 10008;
  * @typedef {{ date: string, time: string, map: string, unix: number, live: boolean }} MidCapMatch
  */
 
-/** The match the vote is about, straight from the rotation state. */
-function getMatch(now = new Date()) {
+/**
+ * The match the vote is about, straight from the rotation state.
+ *
+ * `liveWindowHours` overrides how long a started match still counts as the
+ * current one; the post-match scheduler passes 0 so the match that just ended
+ * cannot stand in for the next one (see scheduler.js).
+ * @param {Date} [now]
+ * @param {number} [liveWindowHours]
+ */
+function getMatch(now = new Date(), liveWindowHours) {
   const channelId = process.env.MAP_ROTATION_CHANNEL;
   if (!channelId) return null;
-  return currentEvent(loadRotationState(channelId), now);
+  return currentEvent(loadRotationState(channelId), now, liveWindowHours);
 }
 
 /**
@@ -52,11 +60,12 @@ function getMatch(now = new Date()) {
  * `@ts-check`ed callers can read `reason` without narrowing gymnastics.
  *
  * @param {Date} [now]
+ * @param {{ liveWindowHours?: number }} [opts]
  * @returns {{ ok: boolean, reason?: string, match?: MidCapMatch, caps?: string[],
  *             poll?: import('discord.js').PollData, key?: string }}
  */
-function describeMidCapPoll(now = new Date()) {
-  const match = getMatch(now);
+function describeMidCapPoll(now = new Date(), { liveWindowHours } = {}) {
+  const match = getMatch(now, liveWindowHours);
   if (!match) return { ok: false, reason: 'no upcoming match in the map rotation' };
   if (match.live) return { ok: false, reason: `${match.map} has already started`, match };
 
@@ -89,13 +98,14 @@ async function closeEarlierPolls(client, currentKey) {
  * Posts the poll for the current match unless one is already up.
  *
  * @param {import('discord.js').Client} client
+ * @param {{ liveWindowHours?: number }} [opts] forwarded to describeMidCapPoll
  * @returns {Promise<{ ok: boolean, reason?: string, posted?: boolean, messageId?: string, channelId?: string, map?: string }>}
  */
-async function ensureMidCapPoll(client) {
+async function ensureMidCapPoll(client, opts = {}) {
   const channelId = process.env.MIDCAP_CHANNEL;
   if (!channelId) return { ok: false, reason: 'MIDCAP_CHANNEL not set' };
 
-  const plan = describeMidCapPoll();
+  const plan = describeMidCapPoll(new Date(), opts);
   if (!plan.ok) return { ok: false, reason: plan.reason };
 
   const channel = await client.channels.fetch(channelId).catch(() => null);
@@ -128,10 +138,14 @@ async function ensureMidCapPoll(client) {
   }
 }
 
-/** Scheduler entry point — never throws. */
-async function refreshMidCapPoll(client) {
+/**
+ * Scheduler entry point — never throws.
+ * @param {import('discord.js').Client} client
+ * @param {{ liveWindowHours?: number }} [opts]
+ */
+async function refreshMidCapPoll(client, opts = {}) {
   try {
-    return await ensureMidCapPoll(client);
+    return await ensureMidCapPoll(client, opts);
   } catch (err) {
     logger.warn(`Mid cap poll refresh failed: ${err.message}`);
     return { ok: false, reason: err.message };

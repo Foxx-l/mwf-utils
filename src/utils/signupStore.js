@@ -3,8 +3,8 @@
  * signupStore.js — Persists the per-clan signup feature's state in the data
  * directory: the auto-post switch, the signup category/channel ids, and which
  * RaidHelper events were already created per match date. The posted-events
- * record is what makes posting idempotent — a daily scheduler tick or a
- * repeated panel click skips every (date, clan) pair that is already there.
+ * record is what makes posting idempotent — a scheduler tick or a repeated
+ * panel click skips every (date, clan) pair that is already there.
  */
 
 const fs = require('fs');

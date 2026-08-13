@@ -10,7 +10,8 @@ Items are grouped by priority and complexity.
 - Faction selection embed (Allies / Axis buttons with role assignment)
 - Custom emoji auto-upload on startup (ALLIES, AXIS)
 - Admin panel (`/panel`) — Reset Roles, Reload Embed, Clear Logs
-- Weekly auto-reset of faction roles every Wednesday at 22:00 (Warsaw time)
+- Weekly auto-reset of faction roles every Wednesday at 22:00 (Warsaw time),
+  after the match
 - Admin log channel — logs all faction selections and admin actions
 - `/lineup` — post pre-made lineup image with Discord timestamps to lineup channel
 - `/server` — post Server Details embed (server name + password) to dedicated channel
@@ -27,7 +28,9 @@ Items are grouped by priority and complexity.
   - Mid caps of all 20 maps live in `src/config/midCaps.js` (from the MWF data sheet)
   - One poll per match, tracked in `data/midcap_polls.json`; the previous poll is ended
     when a new one is posted
-  - Posted from `/panel`, and daily at 00:45 Warsaw; never on startup
+  - Posted from `/panel`, and by the scheduler in the post-match slot (22:05
+    Warsaw by default), so the next match's vote opens right after the current
+    match; never on startup
   - Optional env var: `MIDCAP_CHANNEL` (unset disables the feature). The bot needs
     **Send Polls** in that channel.
 - Clan Tag Automation — ported from the standalone TagSelector bot. Members set their
@@ -50,8 +53,9 @@ Items are grouped by priority and complexity.
   API (`POST /api/v4/servers/{id}/channels/{id}/event`; templates 24/23 by default).
   - Managed from `/panel` → Panel utils → **Signups — manage**: post now, cancel
     (with confirm), auto-post toggle, channel sync, status row in the main panel
-  - Auto-posted by a daily 01:00 Warsaw scheduler when enabled; idempotent per
-    (date, clan) via `data/signups_data.json`, so ticks and clicks never double-post
+  - Auto-posted in the post-match slot (22:10 Warsaw by default) when enabled;
+    idempotent per (date, clan) via `data/signups_data.json`, so ticks and clicks
+    never double-post
   - Feature is enabled by setting `RAIDHELPER_API_KEY`; RaidHelper's bot gets an
     explicit overwrite in the private channels via `RAIDHELPER_BOT_ID`
   - Implemented in `src/utils/raidhelper.js`, `src/utils/signupStore.js`,
