@@ -97,10 +97,14 @@ async function buildPanelPayload(client, guildId) {
     .setDescription(description)
     .setFooter({ text: buildFooter() });
 
-  return {
+  // Cast at the boundary: an ActionRowBuilder built without a type argument is
+  // ActionRowBuilder<AnyComponentBuilder>, which is wider than the row types
+  // discord.js accepts in its own reply options. The rows really are select
+  // rows, so this is the single place that says so.
+  return /** @type {import('discord.js').InteractionEditReplyOptions} */ ({
     embeds: [embed],
     components: buildPanelComponents()
-  };
+  });
 }
 
 module.exports = {

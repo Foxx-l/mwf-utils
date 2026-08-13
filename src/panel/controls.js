@@ -168,6 +168,19 @@ function buildPanelComponents() {
   return [factionMenu(), lineupMenu(), serverMenu(), rotNodesMenu(), panelMenu()];
 }
 
+/**
+ * The customIds that sit *on the panel message*. A component interaction with
+ * one of these can redraw the panel through its own token; anything else (a
+ * confirm dialog, an edit preview) lives on a different message and cannot.
+ */
+const PANEL_CONTROL_IDS = new Set([
+  'admin_faction_select',
+  'admin_lineup_select',
+  'admin_server_select',
+  'admin_rotnodes_select',
+  'admin_panel_select',
+]);
+
 module.exports = {
   factionMenu,
   lineupMenu,
@@ -175,4 +188,5 @@ module.exports = {
   rotNodesMenu,
   panelMenu,
   buildPanelComponents,
+  PANEL_CONTROL_IDS,
 };

@@ -89,7 +89,7 @@ const {
   handleAdminHealthcheck,
   handleAdminHealthcheckAutofix,
 } = require('../handlers/interactions/adminHandler');
-const { refreshPanelMessage } = require('../panel/refresh');
+const { refreshPanel } = require('../panel/refresh');
 
 // ── Shared plumbing ───────────────────────────────────────────────────────────
 
@@ -191,7 +191,7 @@ const SELECT_ROUTES = [
   { id: 'admin_rotnodes_select', value: 'nodes:edit',       run: handleAdminEditNodes },
 
   { id: 'admin_panel_select', value: 'refresh',
-    run: async i => { await i.deferUpdate(); return refreshPanelMessage(i); } },
+    run: async i => { await i.deferUpdate(); return refreshPanel(i); } },
   { id: 'admin_panel_select', value: 'postall',     track: 'Post All Missing', run: handleAdminPostAllMissing },
   { id: 'admin_panel_select', value: 'midcap',      track: 'Post Mid Cap Poll', run: handleAdminPostMidCapPoll },
   { id: 'admin_panel_select', value: 'signups',     run: handleAdminSignupsOpen },
