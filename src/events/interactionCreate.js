@@ -89,7 +89,7 @@ const {
   handleAdminHealthcheck,
   handleAdminHealthcheckAutofix,
 } = require('../handlers/interactions/adminHandler');
-const { refreshPanelMessage } = require('../commands/admin/panel');
+const { refreshPanelMessage } = require('../panel/refresh');
 
 // ── Shared plumbing ───────────────────────────────────────────────────────────
 

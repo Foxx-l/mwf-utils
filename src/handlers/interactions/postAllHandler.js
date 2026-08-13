@@ -24,7 +24,7 @@ const { saveNodesData }  = require('../../utils/nodesStore');
 const { ensureRotationPosted } = require('./rotationHandler');
 const { ensureMidCapPoll }     = require('./midCapHandler');
 
-const { probePanelState } = require('../../commands/admin/panel');
+const { probePanelState } = require('../../panel/probes');
 
 // ── Cores (each returns { posted: true|false, reason?: string }) ─────────────
 
