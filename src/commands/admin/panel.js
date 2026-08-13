@@ -18,7 +18,7 @@ const { loadRotationMsgId, loadRotationState, rotationHistoryCount } = require('
 const { monthHeader }                     = require('../../utils/rotationState');
 const { matchKey, loadPoll }              = require('../../utils/midCapStore');
 const { getMatch }                        = require('../../handlers/interactions/midCapHandler');
-const { COLORS }                          = require('../../config/theme');
+const { COLORS, GLYPHS, statusGlyph }     = require('../../config/theme');
 const { loadLastAction }                 = require('../../utils/lastActionStore');
 const { getNextResetTime }               = require('../../utils/scheduler');
 const { signupsPanelRow }                = require('../../handlers/interactions/signupHandler');
@@ -47,9 +47,9 @@ function listMissingEnv() {
   }).map(entry => Array.isArray(entry) ? entry[0] : entry);
 }
 
-const OK = '🟢';
-const NO = '🔴';
-const PARTIAL = '🟡';
+const OK = GLYPHS.ok;
+const NO = GLYPHS.missing;
+const PARTIAL = GLYPHS.partial;
 const BOT_STARTED_AT_MS = Date.now();
 
 function humanizeAgo(ms) {
@@ -285,7 +285,7 @@ function midCapRow(state, guildId) {
 function nodesRow({ total, hits }, guildId) {
   if (!total) return `📍 **Nodes**   ${NO}${channelSuffix(guildId, firstChannel('NODES_CHANNELS'))}`;
   const posted = hits.length;
-  const icon = posted === 0 ? NO : posted === total ? OK : PARTIAL;
+  const icon = statusGlyph(posted, total);
   // Prefer jumping to the first posted embed; otherwise link to the first
   // configured Nodes channel so the admin can still navigate there.
   const suffix = hits.length

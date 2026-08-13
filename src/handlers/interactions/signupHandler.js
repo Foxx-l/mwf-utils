@@ -18,15 +18,14 @@ const {
   ActionRowBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   ChannelType,
   OverwriteType,
   PermissionFlagsBits,
   MessageFlags,
 } = require('discord.js');
 const logger = require('../../utils/logger');
-const { COLORS } = require('../../config/theme');
+const { COLORS, GLYPHS, statusGlyph } = require('../../config/theme');
+const { confirmDialog } = require('../../utils/embeds');
 const { loadTags } = require('../../utils/tagStore');
 const store = require('../../utils/signupStore');
 const raidhelper = require('../../utils/raidhelper');
@@ -424,7 +423,12 @@ async function autoPostSignups(client) {
 
 // ── Panel sub-panel UI ───────────────────────────────────────────────────────
 
-const STATUS_ICON = { created: '🟢', skipped: '⚪', deleted: '🗑️', failed: '🔴' };
+const STATUS_ICON = {
+  created: GLYPHS.ok,
+  skipped: GLYPHS.idle,
+  deleted: GLYPHS.deleted,
+  failed:  GLYPHS.missing,
+};
 
 /**
  * @param {Array<{label?: string, key: string, status: string, detail?: string}>} results
@@ -458,8 +462,8 @@ function buildSignupsPayload(guild, extraLines = []) {
   const rows = [
     `📅 **Next match**   ${match.date}, briefing ${signupEventTime()}`,
     `📮 **Posted**   ${postedCount}/${wanted.length} (${tags.length} clans + solo)`,
-    `🔁 **Auto-post**   ${state.auto_post ? '🟢 on (after each match)' : '🔴 off'}`,
-    `🗂️ **Category**   ${category ? `🟢 ${category.name}` : '🔴 not created yet'}`,
+    `🔁 **Auto-post**   ${state.auto_post ? `${GLYPHS.ok} on (after each match)` : `${GLYPHS.missing} off`}`,
+    `🗂️ **Category**   ${category ? `${GLYPHS.ok} ${category.name}` : `${GLYPHS.missing} not created yet`}`,
     `🏷️ **Clans**   ${tags.length ? tags.join(', ') : '— none (add tags first)'}`,
   ];
   if (!process.env.RAIDHELPER_API_KEY) rows.push('⚠️ `RAIDHELPER_API_KEY` is not set — posting will fail.');
@@ -515,7 +519,7 @@ function signupsPanelRow() {
   const wanted = [...loadTags(), SOLO_KEY];
   const posted = store.eventsForDate(match.date);
   const postedCount = wanted.filter(key => posted[key]).length;
-  const icon = postedCount === 0 ? '🔴' : postedCount === wanted.length ? '🟢' : '🟡';
+  const icon = statusGlyph(postedCount, wanted.length);
   const auto = state.auto_post ? 'auto' : 'manual';
   return `📅 **Signups**   ${icon}   _${match.date} · ${postedCount}/${wanted.length} posted · ${auto}_`;
 }
@@ -579,15 +583,14 @@ async function handleAdminSignupsCancelConfirm(interaction) {
   if (!posted) {
     return interaction.update(buildSignupsPayload(interaction.guild, [`⚪ Nothing posted for ${match.date}.`]));
   }
-  const embed = new EmbedBuilder()
-    .setColor(0xff0000)
-    .setTitle('⚠️ Cancel Signups')
-    .setDescription(`This deletes **${posted}** RaidHelper event(s) for **${match.date}** — signups on them are lost.\n\nAre you sure?`);
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('admin_signups_cancel_confirm').setLabel('Delete events').setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId('admin_signups_cancel_cancel').setLabel('Keep them').setStyle(ButtonStyle.Secondary)
-  );
-  return interaction.update({ embeds: [embed], components: [row] });
+  return interaction.update(confirmDialog({
+    title: 'Cancel Signups',
+    description: `This deletes **${posted}** RaidHelper event(s) for **${match.date}** — signups on them are lost.\n\nAre you sure?`,
+    confirmId: 'admin_signups_cancel_confirm',
+    cancelId: 'admin_signups_cancel_cancel',
+    confirmLabel: 'Delete events',
+    cancelLabel: 'Keep them',
+  }));
 }
 
 async function handleAdminSignupsCancel(interaction) {

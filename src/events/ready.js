@@ -6,7 +6,8 @@ const emojiState = require('../utils/emojiState');
 const { createFactionButtons } = require('../utils/buttons');
 const { startScheduler, startRotationScheduler, startMidCapScheduler, startSignupScheduler } = require('../utils/scheduler');
 const { warmRotationCache } = require('../handlers/interactions/rotationHandler');
-const { sendLog } = require('../handlers/interactions/shared');
+const { sendLog, hasEmbedTitle } = require('../handlers/interactions/shared');
+const { EMBED_TITLES } = require('../config/constants');
 const { ensureDataDir, DATA_DIR } = require('../utils/dataDir');
 const pkg = require('../../package.json');
 
@@ -66,10 +67,8 @@ async function refreshFactionButtons(client) {
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel?.isTextBased()) return;
     const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-    const factionMessage = messages?.find(m =>
-      m.author.id === client.user.id &&
-      m.embeds.some(e => e.title === 'Choose your side!')
-    );
+    const isFactionEmbed = hasEmbedTitle(EMBED_TITLES.faction);
+    const factionMessage = messages?.find(m => m.author.id === client.user.id && isFactionEmbed(m));
     if (!factionMessage) return;
     await factionMessage.edit({ components: [createFactionButtons()] });
     logger.info('Faction embed buttons refreshed with current emojis.');

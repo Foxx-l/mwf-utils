@@ -25,9 +25,22 @@ const HEALTHCHECK_ENV_VARS = [
   'NODES_CHANNELS',
 ];
 
+/**
+ * Titles the bot identifies its own embeds by when scanning a channel. Posting,
+ * probing, reloading and healing all have to agree on the exact string, so it
+ * lives here rather than being retyped at each site.
+ */
+const EMBED_TITLES = Object.freeze({
+  faction: 'Choose your side!',
+  nodes: 'NODES',
+  /** @param {string|null} [server] 'S1' | 'S2' | null (legacy single-server) */
+  serverDetails: server => (server ? `Server Details (${server})` : 'Server Details'),
+});
+
 module.exports = {
   REQUIRED_ENV_VARS,
   HEALTHCHECK_ENV_VARS,
+  EMBED_TITLES,
 
   // Shared thumbnail used across all embeds.
   // Hosted from THIS repository's assets/ so the bot never depends on an

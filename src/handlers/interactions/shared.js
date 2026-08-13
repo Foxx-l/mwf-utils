@@ -64,6 +64,34 @@ async function findLastBotMessage(channel, predicate, limit = 50) {
   return messages.find(m => m.author.id === channel.client.user.id && predicate(m)) ?? null;
 }
 
+// ── Embed identity predicates ─────────────────────────────────────────────────
+// What makes a message "the faction embed" or "S2's lineup". Shared so the
+// panel probes, the edit flows and the healthcheck all recognise the same
+// message; pair them with findLastBotMessage, which already filters by author.
+
+/** 'S1' → 'Server 1' (the label written into the lineup caption). */
+function serverLabel(server) {
+  return server === 'S1' ? 'Server 1' : 'Server 2';
+}
+
+/**
+ * Carries one of the bot's embeds with this exact title.
+ * @param {string} title
+ */
+function hasEmbedTitle(title) {
+  return message => message.embeds.some(e => e.title === title);
+}
+
+/**
+ * Is the lineup image embed **for this server** — the image alone is not
+ * enough, or S1's message gets recognised as S2's.
+ * @param {string} server 'S1' | 'S2'
+ */
+function hasLineupImageFor(server) {
+  const label = `**${serverLabel(server)}**`;
+  return message => message.embeds.some(e => e.image && e.description?.includes(label));
+}
+
 // ── Role Management ───────────────────────────────────────────────────────────
 
 /**
@@ -97,4 +125,12 @@ async function batchRoleRemove(members, roleId, batchSize = 5, delayMs = 500) {
   return { count, errors };
 }
 
-module.exports = { sendLog, bulkDeleteFiltered, findLastBotMessage, batchRoleRemove };
+module.exports = {
+  sendLog,
+  bulkDeleteFiltered,
+  findLastBotMessage,
+  batchRoleRemove,
+  serverLabel,
+  hasEmbedTitle,
+  hasLineupImageFor,
+};

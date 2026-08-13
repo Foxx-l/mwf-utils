@@ -18,9 +18,9 @@ const {
 } = require('discord.js');
 const logger = require('../../utils/logger');
 const { COLORS } = require('../../config/theme');
-const { createErrorEmbed, createSuccessEmbed } = require('../../utils/embeds');
-const { THUMBNAIL_URL } = require('../../config/constants');
-const { sendLog, findLastBotMessage } = require('./shared');
+const { createErrorEmbed, createSuccessEmbed, createServerDetailsEmbed } = require('../../utils/embeds');
+const { EMBED_TITLES } = require('../../config/constants');
+const { sendLog, findLastBotMessage, hasEmbedTitle, hasLineupImageFor } = require('./shared');
 const { saveLineupData, loadLineupData, saveServerData, loadServerData } = require('../../utils/lineupStore');
 const { getServerDefaults } = require('../../config/runtime');
 const {
@@ -231,17 +231,6 @@ async function handleLineupEditServerButton(interaction) {
 
 // ── Server Details Modal Submit ───────────────────────────────────────────────
 
-function buildServerDetailsEmbed(server, name, password) {
-  return new EmbedBuilder()
-    .setTitle(server ? `Server Details (${server})` : 'Server Details')
-    .setColor(COLORS.primary)
-    .setThumbnail(THUMBNAIL_URL)
-    .addFields(
-      { name: '\ud83d\udccc Server Name', value: name,     inline: true },
-      { name: '\ud83d\udd12 Password',    value: password, inline: true }
-    );
-}
-
 // Server Details modal submit -> preview; actual edit runs on Apply.
 async function handleServerModalSubmit(interaction) {
   const parts     = interaction.customId.split(':');
@@ -253,7 +242,7 @@ async function handleServerModalSubmit(interaction) {
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const previewEmbed = buildServerDetailsEmbed(server, newName, newPass);
+  const previewEmbed = createServerDetailsEmbed(server, newName, newPass);
 
   const nonce = storePendingEdit(SERVER_KIND, {
     channelId,
@@ -276,7 +265,7 @@ async function handleServerApplyButton(interaction) {
   if (!pending) return false;
 
   const { channelId, messageId, server, name: newName, password: newPass } = pending;
-  const updated = buildServerDetailsEmbed(server, newName, newPass);
+  const updated = createServerDetailsEmbed(server, newName, newPass);
 
   await interaction.update({
     content: '\u23f3 Applying server-details edit\u2026',
@@ -333,14 +322,7 @@ async function handleAdminPostServer(interaction, serverOverride) {
   const serverName     = defaultName;
   const serverPassword = defaultPass;
 
-  const serverEmbed = new EmbedBuilder()
-    .setTitle(server ? `Server Details (${server})` : 'Server Details')
-    .setColor(COLORS.primary)
-    .setThumbnail(THUMBNAIL_URL)
-    .addFields(
-      { name: '\ud83d\udccc Server Name', value: serverName,     inline: true },
-      { name: '\ud83d\udd12 Password',    value: serverPassword, inline: true }
-    );
+  const serverEmbed = createServerDetailsEmbed(server, serverName, serverPassword);
 
   const previousData = loadServerData(channel.id, server);
   if (previousData?.messageId) {
@@ -404,7 +386,9 @@ async function handleAdminEditCaption(interaction, serverOverride) {
       });
     }
 
-    const msg = await findLastBotMessage(ch, m => m.embeds.some(e => e.image));
+    // Must match this server's lineup, not just any image embed — otherwise
+    // S1's message id gets saved under the S2 key on a cold cache.
+    const msg = await findLastBotMessage(ch, hasLineupImageFor(server));
     if (!msg) {
       return interaction.reply({
         content: `\u274c No lineup message found${server ? ` for ${server}` : ''}. Post one with \`/lineup\` first.`,
@@ -456,8 +440,7 @@ async function handleAdminEditServer(interaction, serverOverride) {
       });
     }
 
-    const expectedTitle = server ? `Server Details (${server})` : 'Server Details';
-    const msg = await findLastBotMessage(ch, m => m.embeds.some(e => e.title === expectedTitle));
+    const msg = await findLastBotMessage(ch, hasEmbedTitle(EMBED_TITLES.serverDetails(server)));
     if (!msg) {
       return interaction.reply({
         content: `\u274c No Server Details message found${server ? ` for ${server}` : ''}. Post one first using **Post Server Details${server ? ` ${server}` : ''}**.`,

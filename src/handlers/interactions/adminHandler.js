@@ -11,9 +11,10 @@ const {
 } = require('discord.js');
 const logger = require('../../utils/logger');
 const { COLORS } = require('../../config/theme');
-const { createFactionEmbed, createSuccessEmbed, createErrorEmbed } = require('../../utils/embeds');
+const { createFactionEmbed, createSuccessEmbed, createErrorEmbed, confirmDialog } = require('../../utils/embeds');
 const { createFactionButtons } = require('../../utils/buttons');
-const { sendLog, bulkDeleteFiltered, batchRoleRemove } = require('./shared');
+const { sendLog, bulkDeleteFiltered, batchRoleRemove, hasEmbedTitle } = require('./shared');
+const { EMBED_TITLES } = require('../../config/constants');
 const { getAllFactionRoleIds } = require('../../config/factions');
 const { runHealthcheck } = require('../../utils/healthcheck');
 const { remainingCooldown, markAdminAction } = require('../../utils/adminCooldown');
@@ -40,23 +41,15 @@ async function _enforceAdminCooldown(interaction, action) {
 // ── Admin: Reset Confirmation ─────────────────────────────────────────────────
 
 async function handleAdminResetConfirm(interaction) {
-  const confirmEmbed = new EmbedBuilder()
-    .setColor(0xff0000)
-    .setTitle('⚠️ Confirm Role Reset')
-    .setDescription('This will remove **all Allies and Axis roles** from every member.\n\nAre you sure?');
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('admin_reset_confirm')
-      .setLabel('Confirm')
-      .setStyle(ButtonStyle.Danger),
-    new ButtonBuilder()
-      .setCustomId('admin_reset_cancel')
-      .setLabel('Cancel')
-      .setStyle(ButtonStyle.Secondary)
-  );
-
-  return interaction.reply({ embeds: [confirmEmbed], components: [row], flags: MessageFlags.Ephemeral });
+  return interaction.reply({
+    ...confirmDialog({
+      title: 'Confirm Role Reset',
+      description: 'This will remove **all Allies and Axis roles** from every member.\n\nAre you sure?',
+      confirmId: 'admin_reset_confirm',
+      cancelId: 'admin_reset_cancel',
+    }),
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 async function handleAdminResetCancel(interaction) {
@@ -141,11 +134,10 @@ async function handleAdminReload(interaction) {
   }
 
   // Only remove the faction embed — leave all other bot messages untouched.
+  const isFactionEmbed = hasEmbedTitle(EMBED_TITLES.faction);
   const deleted = await bulkDeleteFiltered(
     channel,
-    msg =>
-      msg.author.id === interaction.client.user.id &&
-      msg.embeds.some(e => e.title === 'Choose your side!')
+    msg => msg.author.id === interaction.client.user.id && isFactionEmbed(msg)
   );
 
   await channel.send({ embeds: [createFactionEmbed()], components: [createFactionButtons()] });
@@ -174,23 +166,15 @@ async function handleAdminClearLogsConfirm(interaction) {
   const logChannelId = process.env.ADMIN_LOG_CHANNEL;
   const target       = logChannelId ? `<#${logChannelId}>` : 'the log channel';
 
-  const confirmEmbed = new EmbedBuilder()
-    .setColor(0xff0000)
-    .setTitle('⚠️ Confirm Log Clear')
-    .setDescription(`This will delete **all messages** in ${target}.\n\nAre you sure?`);
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('admin_clearlogs_confirm')
-      .setLabel('Confirm')
-      .setStyle(ButtonStyle.Danger),
-    new ButtonBuilder()
-      .setCustomId('admin_clearlogs_cancel')
-      .setLabel('Cancel')
-      .setStyle(ButtonStyle.Secondary)
-  );
-
-  return interaction.reply({ embeds: [confirmEmbed], components: [row], flags: MessageFlags.Ephemeral });
+  return interaction.reply({
+    ...confirmDialog({
+      title: 'Confirm Log Clear',
+      description: `This will delete **all messages** in ${target}.\n\nAre you sure?`,
+      confirmId: 'admin_clearlogs_confirm',
+      cancelId: 'admin_clearlogs_cancel',
+    }),
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 async function handleAdminClearLogsCancel(interaction) {

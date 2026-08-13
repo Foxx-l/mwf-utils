@@ -1,11 +1,11 @@
 // @ts-check
-const { EmbedBuilder } = require('discord.js');
-const { THUMBNAIL_URL } = require('../config/constants');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { THUMBNAIL_URL, EMBED_TITLES } = require('../config/constants');
 const { COLORS } = require('../config/theme');
 
 function createFactionEmbed() {
   return new EmbedBuilder()
-    .setTitle('Choose your side!')
+    .setTitle(EMBED_TITLES.faction)
     .setDescription("Choose the side you'll be playing on by clicking one of the buttons below. After selecting a side, you'll gain access to the channels where the SL briefings will take place. Good luck, and see you on the server!")
     .setColor(COLORS.primary)
     .setThumbnail(THUMBNAIL_URL);
@@ -51,4 +51,57 @@ function createErrorEmbed(title, description) {
     .setTimestamp();
 }
 
-module.exports = { createFactionEmbed, createTagInfoEmbed, createSuccessEmbed, createErrorEmbed };
+/**
+ * The Server Details embed. One builder for the three paths that publish it:
+ * `/panel` → Post, the edit preview/apply, and Post All Missing.
+ * @param {string|null} server 'S1' | 'S2' | null (legacy single-server)
+ * @param {string} name
+ * @param {string} password
+ */
+function createServerDetailsEmbed(server, name, password) {
+  return new EmbedBuilder()
+    .setTitle(EMBED_TITLES.serverDetails(server))
+    .setColor(COLORS.primary)
+    .setThumbnail(THUMBNAIL_URL)
+    .addFields(
+      { name: '📌 Server Name', value: name,     inline: true },
+      { name: '🔒 Password',    value: password, inline: true }
+    );
+}
+
+/**
+ * The Confirm/Cancel dialog every destructive admin action opens. Returns the
+ * payload rather than sending it, so the caller keeps control of whether it is
+ * an ephemeral `reply` or an in-place `update`.
+ * @param {{ title: string, description: string, confirmId: string, cancelId: string,
+ *           confirmLabel?: string, cancelLabel?: string, color?: number }} opts
+ */
+function confirmDialog({
+  title,
+  description,
+  confirmId,
+  cancelId,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  color = COLORS.danger,
+}) {
+  return {
+    embeds: [new EmbedBuilder()
+      .setColor(color)
+      .setTitle(`⚠️ ${title}`)
+      .setDescription(description)],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(confirmId).setLabel(confirmLabel).setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(cancelId).setLabel(cancelLabel).setStyle(ButtonStyle.Secondary)
+    )],
+  };
+}
+
+module.exports = {
+  createFactionEmbed,
+  createTagInfoEmbed,
+  createSuccessEmbed,
+  createErrorEmbed,
+  createServerDetailsEmbed,
+  confirmDialog,
+};

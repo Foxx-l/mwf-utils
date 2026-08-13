@@ -14,10 +14,10 @@ const { EmbedBuilder, MessageFlags } = require('discord.js');
 
 const logger = require('../../utils/logger');
 const { COLORS } = require('../../config/theme');
-const { createFactionEmbed } = require('../../utils/embeds');
+const { createFactionEmbed, createServerDetailsEmbed } = require('../../utils/embeds');
 const { createFactionButtons } = require('../../utils/buttons');
-const { sendLog, bulkDeleteFiltered } = require('./shared');
-const { THUMBNAIL_URL, DEFAULT_NODES } = require('../../config/constants');
+const { sendLog, bulkDeleteFiltered, hasEmbedTitle } = require('./shared');
+const { THUMBNAIL_URL, DEFAULT_NODES, EMBED_TITLES } = require('../../config/constants');
 const { getServerDefaults } = require('../../config/runtime');
 const { saveServerData } = require('../../utils/lineupStore');
 const { saveNodesData }  = require('../../utils/nodesStore');
@@ -33,10 +33,10 @@ async function postFactionCore(client) {
   if (!channelId) return { posted: false, reason: 'FACTION_CHANNEL not set' };
   const channel = await client.channels.fetch(channelId).catch(() => null);
   if (!channel) return { posted: false, reason: 'Faction channel unreachable' };
+  const isFactionEmbed = hasEmbedTitle(EMBED_TITLES.faction);
   await bulkDeleteFiltered(
     channel,
-    msg => msg.author.id === client.user.id &&
-           msg.embeds.some(e => e.title === 'Choose your side!')
+    msg => msg.author.id === client.user.id && isFactionEmbed(msg)
   );
   await channel.send({ embeds: [createFactionEmbed()], components: [createFactionButtons()] });
   return { posted: true };
@@ -49,15 +49,7 @@ async function postServerCore(client, server) {
   if (!channel) return { posted: false, reason: 'Server Details channel unreachable' };
 
   const { defaultName, defaultPass } = getServerDefaults(server);
-
-  const embed = new EmbedBuilder()
-    .setTitle(server ? `Server Details (${server})` : 'Server Details')
-    .setColor(COLORS.primary)
-    .setThumbnail(THUMBNAIL_URL)
-    .addFields(
-      { name: '\ud83d\udccc Server Name', value: defaultName, inline: true },
-      { name: '\ud83d\udd12 Password',    value: defaultPass, inline: true }
-    );
+  const embed = createServerDetailsEmbed(server, defaultName, defaultPass);
 
   // Send without button — the edit button is re-wired via stored messageId
   // on modal open, matching the regular postServerCore handler behavior.
@@ -92,7 +84,7 @@ async function postNodesCore(client, channelIds = null) {
     try {
       const channel = await client.channels.fetch(channelId);
       const embed = new EmbedBuilder()
-        .setTitle('NODES')
+        .setTitle(EMBED_TITLES.nodes)
         .setColor(COLORS.primary)
         .setThumbnail(THUMBNAIL_URL)
         .addFields(DEFAULT_NODES);
