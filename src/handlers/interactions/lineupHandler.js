@@ -21,6 +21,7 @@ const { COLORS } = require('../../config/theme');
 const { createErrorEmbed, createSuccessEmbed, createServerDetailsEmbed } = require('../../utils/embeds');
 const { EMBED_TITLES } = require('../../config/constants');
 const { sendLog, findLastBotMessage, hasEmbedTitle, hasLineupImageFor } = require('./shared');
+const { ackPanelAction, reportPanelResult } = require('../../panel/respond');
 const { saveLineupData, loadLineupData, saveServerData, loadServerData } = require('../../utils/lineupStore');
 const { getServerDefaults } = require('../../config/runtime');
 const {
@@ -304,7 +305,7 @@ async function handleServerCancelButton(interaction) {
 // ── Admin: Post Server Details (panel button) ─────────────────────────────────
 
 async function handleAdminPostServer(interaction, serverOverride) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await ackPanelAction(interaction);
 
   const server    = serverOverride || interaction.customId.split(':')[1] || null; // S1 | S2 | null
   const channelId = process.env.SERVER_DETAILS_CHANNEL;
@@ -313,7 +314,7 @@ async function handleAdminPostServer(interaction, serverOverride) {
     : interaction.channel;
 
   if (!channel) {
-    return interaction.editReply({
+    return reportPanelResult(interaction, {
       embeds: [createErrorEmbed('Config Error', 'SERVER_DETAILS_CHANNEL not found. Check your .env.')]
     });
   }
@@ -353,7 +354,7 @@ async function handleAdminPostServer(interaction, serverOverride) {
     .setStyle(ButtonStyle.Secondary)
     .setEmoji('\u270f\ufe0f');
 
-  return interaction.editReply({
+  return reportPanelResult(interaction, {
     embeds: [createSuccessEmbed(
       server ? `Server Details Posted (${server})` : 'Server Details Posted',
       `Posted to <#${channel.id}>!`

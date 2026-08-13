@@ -15,6 +15,7 @@ const { COLORS } = require('../../config/theme');
 const { createErrorEmbed, createSuccessEmbed } = require('../../utils/embeds');
 const { THUMBNAIL_URL, DEFAULT_NODES } = require('../../config/constants');
 const { sendLog, findLastBotMessage } = require('./shared');
+const { ackPanelAction, reportPanelResult } = require('../../panel/respond');
 const { saveNodesData, loadNodesData } = require('../../utils/nodesStore');
 const {
   storePendingEdit,
@@ -193,12 +194,12 @@ async function handleNodesCancelButton(interaction) {
 // ── Admin: Post Nodes (panel button) ─────────────────────────────────────────
 
 async function handleAdminPostNodes(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await ackPanelAction(interaction);
 
   const channelIds = getNodesChannelIds();
 
   if (!channelIds.length) {
-    return interaction.editReply({
+    return reportPanelResult(interaction, {
       embeds: [createErrorEmbed('Config Error', 'NODES_CHANNELS is not set in .env.')]
     });
   }
@@ -235,7 +236,7 @@ async function handleAdminPostNodes(interaction) {
     .setTimestamp()
   );
 
-  return interaction.editReply({
+  return reportPanelResult(interaction, {
     embeds: [createSuccessEmbed(
       'Nodes Posted',
       `Posted to ${postedChannels.join(', ')}.${failed ? `\n⚠️ Failed to post to ${failed} channel(s).` : ''}`

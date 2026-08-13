@@ -14,6 +14,7 @@ const logger = require('../../utils/logger');
 const { COLORS } = require('../../config/theme');
 const { createErrorEmbed, createSuccessEmbed } = require('../../utils/embeds');
 const { sendLog } = require('./shared');
+const { ackPanelAction, reportPanelResult } = require('../../panel/respond');
 const { THUMBNAIL_URL } = require('../../config/constants');
 const {
   saveRotationMsgId,
@@ -356,9 +357,9 @@ async function handleRotationCancelButton(interaction) {
 }
 
 async function handleAdminPostRotation(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await ackPanelAction(interaction);
   const result = await ensureRotationPosted(interaction.client);
-  if (!result.ok) return interaction.editReply({ embeds: [createErrorEmbed(result.busy ? 'Busy' : 'Post failed', result.reason)] });
+  if (!result.ok) return reportPanelResult(interaction, { embeds: [createErrorEmbed(result.busy ? 'Busy' : 'Post failed', result.reason)] });
   await sendLog(interaction.client, new EmbedBuilder()
     .setColor(COLORS.primary)
     .setTitle('Map Rotation Upserted')
@@ -368,7 +369,7 @@ async function handleAdminPostRotation(interaction) {
       { name: 'Revision', value: `${result.state.revision}`, inline: true }
     )
     .setTimestamp());
-  return interaction.editReply({ embeds: [createSuccessEmbed('Map Rotation Ready', `Rotation is live in ${result.channel} without duplicates.`)] });
+  return reportPanelResult(interaction, { embeds: [createSuccessEmbed('Map Rotation Ready', `Rotation is live in ${result.channel} without duplicates.`)] });
 }
 
 async function advanceRotationNow(client) {
@@ -459,7 +460,7 @@ async function handleAdminResetRotation(interaction) {
 }
 
 async function handleAdminUndoRotation(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await ackPanelAction(interaction);
   const result = await withRotationLock(async () => {
     const channelId = getMapRotationChannelId();
     if (!channelId) return { ok: false, reason: 'MAP_ROTATION_CHANNEL not set' };
@@ -467,8 +468,8 @@ async function handleAdminUndoRotation(interaction) {
     if (!previous) return { ok: false, reason: 'No rotation history is available.' };
     return upsertRotation(interaction.client, previous);
   });
-  if (!result.ok) return interaction.editReply({ embeds: [createErrorEmbed('UNDO_FAILED', result.reason)] });
-  return interaction.editReply({ embeds: [createSuccessEmbed('Rotation Restored', `Restored the previous state. ${rotationHistoryCount(getMapRotationChannelId())} older state(s) remain.`)] });
+  if (!result.ok) return reportPanelResult(interaction, { embeds: [createErrorEmbed('UNDO_FAILED', result.reason)] });
+  return reportPanelResult(interaction, { embeds: [createSuccessEmbed('Rotation Restored', `Restored the previous state. ${rotationHistoryCount(getMapRotationChannelId())} older state(s) remain.`)] });
 }
 
 async function handleAdminAdvanceRotation(interaction) {

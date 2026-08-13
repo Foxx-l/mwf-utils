@@ -18,6 +18,7 @@ const { EMBED_TITLES } = require('../../config/constants');
 const { getAllFactionRoleIds } = require('../../config/factions');
 const { runHealthcheck } = require('../../utils/healthcheck');
 const { remainingCooldown, markAdminAction } = require('../../utils/adminCooldown');
+const { ackPanelAction, reportPanelResult } = require('../../panel/respond');
 
 /**
  * Enforces a short per-user cooldown on destructive admin actions so an
@@ -121,16 +122,16 @@ async function handleAdminReset(interaction) {
  * unrelated embeds (server details, lineup, etc.) by mistake.
  */
 async function handleAdminReload(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await ackPanelAction(interaction);
 
   const channelId = process.env.FACTION_CHANNEL;
   if (!channelId) {
-    return interaction.editReply({ embeds: [createErrorEmbed('Config Error', 'FACTION_CHANNEL is not set.')] });
+    return reportPanelResult(interaction, { embeds: [createErrorEmbed('Config Error', 'FACTION_CHANNEL is not set.')] });
   }
 
   const channel = await interaction.client.channels.fetch(channelId).catch(() => null);
   if (!channel) {
-    return interaction.editReply({ embeds: [createErrorEmbed('Channel Not Found', `Could not find channel <#${channelId}>.`)] });
+    return reportPanelResult(interaction, { embeds: [createErrorEmbed('Channel Not Found', `Could not find channel <#${channelId}>.`)] });
   }
 
   // Only remove the faction embed — leave all other bot messages untouched.
@@ -155,7 +156,7 @@ async function handleAdminReload(interaction) {
     .setTimestamp()
   );
 
-  return interaction.editReply({
+  return reportPanelResult(interaction, {
     embeds: [createSuccessEmbed('Embed Reloaded', `Cleared **${deleted}** faction embed(s) and posted a fresh one in <#${channelId}>.`)]
   });
 }

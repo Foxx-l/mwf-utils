@@ -10,7 +10,7 @@
  * so admins know to run /lineup manually.
  */
 
-const { EmbedBuilder, MessageFlags } = require('discord.js');
+const { EmbedBuilder } = require('discord.js');
 
 const logger = require('../../utils/logger');
 const { COLORS } = require('../../config/theme');
@@ -25,6 +25,7 @@ const { ensureRotationPosted } = require('./rotationHandler');
 const { ensureMidCapPoll }     = require('./midCapHandler');
 
 const { probePanelState } = require('../../panel/probes');
+const { ackPanelAction, reportPanelResult } = require('../../panel/respond');
 
 // ── Cores (each returns { posted: true|false, reason?: string }) ─────────────
 
@@ -102,7 +103,7 @@ async function postNodesCore(client, channelIds = null) {
 // ── Entry point ──────────────────────────────────────────────────────────────
 
 async function handleAdminPostAllMissing(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await ackPanelAction(interaction);
 
   const state = await probePanelState(interaction.client);
 
@@ -175,7 +176,7 @@ async function handleAdminPostAllMissing(interaction) {
   );
 
   const color = failed.length ? COLORS.warning : COLORS.success;
-  return interaction.editReply({
+  return reportPanelResult(interaction, {
     embeds: [new EmbedBuilder()
       .setColor(color)
       .setTitle(posted.length ? '📮 Post All Missing' : 'Post All Missing')

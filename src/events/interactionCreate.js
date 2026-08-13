@@ -89,7 +89,7 @@ const {
   handleAdminHealthcheck,
   handleAdminHealthcheckAutofix,
 } = require('../handlers/interactions/adminHandler');
-const { refreshPanel } = require('../panel/refresh');
+const { refreshPanel, refreshPanelSafely } = require('../panel/refresh');
 
 // ── Shared plumbing ───────────────────────────────────────────────────────────
 
@@ -97,17 +97,14 @@ const ADMIN_CONTROLS_MSG = 'Only administrators can use these controls.';
 const ADMIN_ROTATION_MSG = 'Administrator permission is required.';
 
 /**
- * Runs the underlying handler and records the admin action in the lastAction
- * store. Handlers may return `false` ("nothing performed") to skip the audit
- * entry, or `{ server }` to tag the action with S1/S2 in the panel footer.
+ * Records an admin action in the lastAction store, which is what the panel
+ * footer reads. A handler returning `{ server }` tags the entry with S1/S2.
  *
  * @param {import('discord.js').RepliableInteraction} interaction
  * @param {string} label
- * @param {() => Promise<*>} fn
+ * @param {*} result  whatever the handler returned
  */
-async function trackAction(interaction, label, fn) {
-  const result = await fn();
-  if (result === false) return;
+function recordAction(interaction, label, result) {
   const suffix = result && typeof result === 'object' && result.server
     ? ` — ${result.server}`
     : '';
@@ -167,7 +164,7 @@ const MODAL_ROUTES = [
 // Every select menu in this bot is an admin control; the dispatcher gates
 // any `admin_*` customId before value matching, exactly like the old code.
 const SELECT_ROUTES = [
-  { id: 'admin_faction_select', value: 'reload', track: 'Reload Faction Embed', run: handleAdminReload },
+  { id: 'admin_faction_select', value: 'reload', track: 'Reload Faction Embed', refresh: true, run: handleAdminReload },
   { id: 'admin_faction_select', value: 'reset',  run: handleAdminResetConfirm },
 
   { id: 'admin_lineup_select', valuePrefix: 'edit:',
@@ -178,24 +175,26 @@ const SELECT_ROUTES = [
       const server = i.values[0].split(':')[1];
       return server ? `Post Server Details — ${server}` : 'Post Server Details';
     },
+    refresh: true,
     run: i => handleAdminPostServer(i, i.values[0].split(':')[1]) },
   { id: 'admin_server_select', valuePrefix: 'edit:',
     run: i => handleAdminEditServer(i, i.values[0].split(':')[1]) },
 
-  { id: 'admin_rotnodes_select', value: 'rotation:sync',    track: 'Sync Map Rotation',   run: handleAdminPostRotation },
+  { id: 'admin_rotnodes_select', value: 'rotation:sync',    track: 'Sync Map Rotation', refresh: true, run: handleAdminPostRotation },
   { id: 'admin_rotnodes_select', value: 'rotation:edit',    run: handleAdminEditRotation },
   { id: 'admin_rotnodes_select', value: 'rotation:advance', run: handleAdminAdvanceConfirm },
   { id: 'admin_rotnodes_select', value: 'rotation:reset',   run: handleRotationResetConfirm },
-  { id: 'admin_rotnodes_select', value: 'rotation:undo',    track: 'Undo Rotation',       run: handleAdminUndoRotation },
-  { id: 'admin_rotnodes_select', value: 'nodes:post',       track: 'Post Nodes',          run: handleAdminPostNodes },
+  { id: 'admin_rotnodes_select', value: 'rotation:undo',    track: 'Undo Rotation',     refresh: true, run: handleAdminUndoRotation },
+  { id: 'admin_rotnodes_select', value: 'nodes:post',       track: 'Post Nodes',        refresh: true, run: handleAdminPostNodes },
   { id: 'admin_rotnodes_select', value: 'nodes:edit',       run: handleAdminEditNodes },
 
   { id: 'admin_panel_select', value: 'refresh',
     run: async i => { await i.deferUpdate(); return refreshPanel(i); } },
-  { id: 'admin_panel_select', value: 'postall',     track: 'Post All Missing', run: handleAdminPostAllMissing },
-  { id: 'admin_panel_select', value: 'midcap',      track: 'Post Mid Cap Poll', run: handleAdminPostMidCapPoll },
+  { id: 'admin_panel_select', value: 'postall',     track: 'Post All Missing',  refresh: true, run: handleAdminPostAllMissing },
+  { id: 'admin_panel_select', value: 'midcap',      track: 'Post Mid Cap Poll', refresh: true, run: handleAdminPostMidCapPoll },
   { id: 'admin_panel_select', value: 'signups',     run: handleAdminSignupsOpen },
-  { id: 'admin_panel_select', value: 'healthcheck', run: handleAdminHealthcheck },
+  // The healthcheck heals stale cache pointers, so statuses can move.
+  { id: 'admin_panel_select', value: 'healthcheck', refresh: true, run: handleAdminHealthcheck },
   { id: 'admin_panel_select', value: 'clearlogs',   run: handleAdminClearLogsConfirm },
 
   // Signups sub-panel (its own ephemeral message opened from the panel)
@@ -262,8 +261,15 @@ function findRoute(routes, customId, value = '') {
 }
 
 /**
- * Enforces the route's admin gate, then runs it — wrapped in trackAction()
- * when the route declares an audit-log label.
+ * Enforces the route's admin gate, runs the handler, records the audit entry,
+ * and redraws the panel — in that order, so the redrawn footer already shows the
+ * action that just ran.
+ *
+ * A route carries `refresh: true` when its handler changed something the panel
+ * displays *and* acks with deferUpdate (see panel/respond.js). Handlers that
+ * open a modal or a confirm dialog must not: nothing has changed yet, and their
+ * interaction belongs to a different message.
+ *
  * @param {Object} route
  * @param {import('discord.js').RepliableInteraction} interaction
  */
@@ -271,11 +277,19 @@ async function runRoute(route, interaction) {
   if (route.admin && !isAdmin(interaction)) {
     return denyAdmin(interaction, route.adminMsg ?? ADMIN_CONTROLS_MSG);
   }
-  if (route.track) {
+
+  const result = await route.run(interaction);
+
+  // Handlers return `false` for "nothing performed" — no audit entry, and no
+  // point spending eight API calls redrawing an unchanged panel.
+  if (result !== false && route.track) {
     const label = typeof route.track === 'function' ? route.track(interaction) : route.track;
-    return trackAction(interaction, label, () => route.run(interaction));
+    recordAction(interaction, label, result);
   }
-  return route.run(interaction);
+  if (result !== false && route.refresh) {
+    await refreshPanelSafely(/** @type {*} */ (interaction));
+  }
+  return result;
 }
 
 /** Uniform "something threw" reply, matching the old per-section catches. */
@@ -375,6 +389,7 @@ module.exports = {
 
   // Exported for tests
   findRoute,
+  runRoute,
   MODAL_ROUTES,
   SELECT_ROUTES,
   BUTTON_ROUTES,

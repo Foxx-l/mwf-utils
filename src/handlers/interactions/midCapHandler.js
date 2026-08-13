@@ -15,10 +15,9 @@
  * closed.
  */
 
-const { MessageFlags } = require('discord.js');
-
 const logger = require('../../utils/logger');
 const { createErrorEmbed } = require('../../utils/embeds');
+const { ackPanelAction, reportPanelResult } = require('../../panel/respond');
 const { getMidCaps } = require('../../config/midCaps');
 const { currentEvent } = require('../../utils/rotationState');
 const { loadRotationState } = require('../../utils/rotationStore');
@@ -154,17 +153,17 @@ async function refreshMidCapPoll(client, opts = {}) {
 
 /** `/panel` → Post Mid Cap Poll. */
 async function handleAdminPostMidCapPoll(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await ackPanelAction(interaction);
 
   const result = await ensureMidCapPoll(interaction.client);
   if (!result.ok) {
-    await interaction.editReply({ embeds: [createErrorEmbed('Mid cap poll not posted', result.reason)] });
+    await reportPanelResult(interaction, { embeds: [createErrorEmbed('Mid cap poll not posted', result.reason)] });
     return false; // skip the audit entry — nothing happened
   }
 
   const plan = describeMidCapPoll();
   const closes = plan.ok ? ` It closes at kick-off (in ~${pollDurationHours(plan.match)}h).` : '';
-  await interaction.editReply({
+  await reportPanelResult(interaction, {
     content: result.posted
       ? `📊 Posted the **${result.map}** mid cap poll in <#${result.channelId}>.${closes}`
       : `ℹ️ The **${result.map}** poll is already up in <#${result.channelId}> — polls can't be edited, so it was left alone.`,
