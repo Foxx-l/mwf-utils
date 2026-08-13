@@ -131,7 +131,28 @@ describe('controls and routes cannot drift apart', () => {
     expect(unreachable).toEqual([]);
   });
 
-  test('PANEL_CONTROL_IDS is exactly the set of menus on the panel message', () => {
-    expect([...controls.PANEL_CONTROL_IDS].sort()).toEqual(controls.MENUS.map(m => m.id).sort());
+  test('PANEL_CONTROL_IDS covers every control the panel can render', () => {
+    // Whatever sits on the panel message must be listed, or its interaction
+    // cannot redraw the panel (and reportPanelResult would overwrite it).
+    const expected = [
+      ...controls.MENUS.map(m => m.id),
+      ...controls.SECTION_ACTIONS.map(a => a.customId),
+      ...controls.UTILITY_BUTTONS.map(b => b.customId),
+    ].sort();
+    expect([...controls.PANEL_CONTROL_IDS].sort()).toEqual(expected);
+  });
+
+  test('every panel button resolves to a button route, not the catch-all', () => {
+    const buttonIds = [
+      ...controls.SECTION_ACTIONS.map(a => a.customId),
+      ...controls.UTILITY_BUTTONS.map(b => b.customId),
+    ];
+    for (const id of buttonIds) {
+      const route = router.findRoute(router.BUTTON_ROUTES, id);
+      expect(route).not.toBeNull();
+      // The catch-all matches by prefix; a real route matches by exact id.
+      expect(route.id).toBe(id);
+      expect(route.admin).toBe(true);
+    }
   });
 });

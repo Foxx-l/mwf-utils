@@ -216,6 +216,20 @@ const BUTTON_ROUTES = [
   { prefix: 'teamrep_approve:', admin: true, run: handleTeamRepApprove },
   { prefix: 'teamrep_reject:',  admin: true, run: handleTeamRepReject },
 
+  // Panel buttons (container layout): one-click actions promoted out of the
+  // dropdowns onto their feature's row, plus the diagnostics row. Same handlers,
+  // same contract as the equivalent select values — and they must stay above the
+  // `admin_` catch-all below, which would otherwise swallow them silently.
+  { id: 'admin_faction_reload', admin: true, track: 'Reload Faction Embed', refresh: true, run: handleAdminReload },
+  { id: 'admin_rotation_sync',  admin: true, track: 'Sync Map Rotation',    refresh: true, run: handleAdminPostRotation },
+  { id: 'admin_nodes_post',     admin: true, track: 'Post Nodes',           refresh: true, run: handleAdminPostNodes },
+  { id: 'admin_midcap_post',    admin: true, track: 'Post Mid Cap Poll',    refresh: true, run: handleAdminPostMidCapPoll },
+  { id: 'admin_signups_post',   admin: true, track: 'Post Signups',         refresh: true, run: handleAdminSignupsPost },
+  { id: 'admin_postall',        admin: true, track: 'Post All Missing',     refresh: true, run: handleAdminPostAllMissing },
+  { id: 'admin_healthcheck_run', admin: true, refresh: true, run: handleAdminHealthcheck },
+  { id: 'admin_panel_refresh',  admin: true,
+    run: async i => { await i.deferUpdate(); return refreshPanel(i); } },
+
   // Destructive admin controls (ephemeral confirm dialogs)
   { id: 'admin_reset_confirm',     admin: true, track: 'Reset Roles',       run: handleAdminReset },
   { id: 'admin_reset_cancel',      admin: true, run: handleAdminResetCancel },
@@ -240,9 +254,17 @@ const BUTTON_ROUTES = [
   { prefix: 'lineup_server_apply:',  track: 'Edit Server Details', run: handleServerApplyButton },
   { prefix: 'lineup_server_cancel:', run: handleServerCancelButton },
 
-  // Catch-all so unknown `admin_*` buttons still hit the permission gate
-  // (mirrors the old startsWith('admin_') branch).
-  { prefix: 'admin_', admin: true, run: async () => {} },
+  // Catch-all so unknown `admin_*` buttons still hit the permission gate. It
+  // also answers, rather than leaving Discord to show "This interaction
+  // failed": the usual cause is a control from a panel that predates a deploy.
+  { prefix: 'admin_', admin: true,
+    run: async i => {
+      logger.warn(`Unknown admin control clicked: ${i.customId}`);
+      return i.reply({
+        content: '⚠️ That control is no longer available — reopen `/panel`.',
+        flags: MessageFlags.Ephemeral,
+      });
+    } },
 ];
 
 // ── Dispatcher ────────────────────────────────────────────────────────────────

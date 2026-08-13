@@ -1,95 +1,83 @@
 // @ts-check
 /**
- * payload.js — Assembles the `/panel` message: probe, render rows, attach
- * controls. The one place that knows what a panel message looks like, so the
+ * payload.js — Assembles the `/panel` message: probe, build the view, hand it to
+ * a renderer. The one place that knows what a panel message looks like, so the
  * command, the refresh and "post all missing" all show the same thing.
+ *
+ * It is also the only place that attaches `MessageFlags.IsComponentsV2`. That
+ * flag has to be present on the initial reply *and on every edit*, and nothing
+ * carries it forward for you — a dropped flag comes back as a bare 400, so it
+ * gets exactly one home.
  */
 
-const { EmbedBuilder } = require('discord.js');
+const { MessageFlags } = require('discord.js');
 
-const { COLORS } = require('../config/theme');
 const { loadLastAction } = require('../utils/lastActionStore');
 const { getNextResetTime } = require('../utils/scheduler');
 const { probePanelState } = require('./probes');
-const { buildPanelComponents } = require('./controls');
 const { idleFeatures, listMissingEnv } = require('./features');
-const {
-  OK,
-  NO,
-  PARTIAL,
-  factionRow,
-  serverPairRow,
-  rotationRow,
-  midCapRow,
-  nodesRow,
-  idleRow,
-  signupsPanelRow,
-} = require('./rows');
+const { statusRows, metaLines } = require('./rows');
+const { renderPanelV1 } = require('./render.v1');
+const { renderPanelV2 } = require('./render.v2');
 const pkg = require('../../package.json');
 
-const BOT_STARTED_AT_MS = Date.now();
+const PROCESS_STARTED_AT_MS = Date.now();
 
 function humanizeAgo(ms) {
   const s = Math.floor(ms / 1000);
-  if (s < 60)    return `${s}s ago`;
-  if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  if (s < 60)    return `${s}s`;
+  if (s < 3600)  return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
 }
 
-function buildFooter() {
-  const base = `v${pkg.version}  •  deployed ${humanizeAgo(Date.now() - BOT_STARTED_AT_MS)}`;
+/**
+ * Version, how long this process has been up, and the last admin action.
+ * ("up", not "deployed": the clock starts when the process starts.)
+ */
+function buildFooter(now = Date.now()) {
+  const base = `v${pkg.version}  •  up ${humanizeAgo(now - PROCESS_STARTED_AT_MS)}`;
   const last = loadLastAction();
   if (!last) return base;
   const who = last.userTag || `@${last.userId}`;
-  return `${base}  •  last: ${last.action} by ${who} ${humanizeAgo(Date.now() - last.ts)}`;
+  return `${base}  •  last: ${last.action} by ${who} ${humanizeAgo(now - last.ts)} ago`;
+}
+
+/** Is the container layout switched on? */
+function useComponentsV2() {
+  return String(process.env.PANEL_V2 ?? '').trim() === '1';
+}
+
+/**
+ * Everything the renderers need, and nothing about how it looks.
+ */
+async function collectPanelView(client, guildId) {
+  const probe = await probePanelState(client);
+  return {
+    rows: statusRows(probe, guildId),
+    meta: metaLines({
+      nextReset: getNextResetTime(),
+      idle: idleFeatures(),
+      missingEnv: listMissingEnv(),
+    }),
+    footer: buildFooter(),
+  };
 }
 
 async function buildPanelPayload(client, guildId) {
-  const state = await probePanelState(client);
-  const { faction: fac, lineupS1: l1, lineupS2: l2, serverS1: s1, serverS2: s2, rotation: rot, nodes, midcap } = state;
+  const view = await collectPanelView(client, guildId);
+  if (!useComponentsV2()) return renderPanelV1(view);
 
-  const missingEnv = listMissingEnv();
-  const nextReset  = getNextResetTime();
-
-  const rows = [
-    factionRow(fac, guildId),
-    serverPairRow('lineup', '📋 **Lineup**', l1, l2, guildId, 'LINEUP_CHANNEL'),
-    serverPairRow('server', '🖥️ **Server Details**', s1, s2, guildId, 'SERVER_DETAILS_CHANNEL'),
-    rotationRow(rot, guildId),
-    nodesRow(nodes, guildId),
-    midCapRow(midcap, guildId),
-    signupsPanelRow()
-  ].filter(Boolean);
-  if (nextReset) {
-    rows.push(`⏰ **Auto-Reset**   <t:${nextReset}:R>`);
-  }
-  const idle = idleRow(idleFeatures());
-  if (idle) rows.push(idle);
-  if (missingEnv.length) {
-    rows.push(`⚠️ **Env**   ${missingEnv.length} missing: \`${missingEnv.slice(0, 6).join('`, `')}\`${missingEnv.length > 6 ? '…' : ''}`);
-  }
-  rows.push('', `_${OK} posted  •  ${PARTIAL} partial  •  ${NO} not posted  •  ↗ jump to message_`);
-  const description = rows.join('\n');
-
-  const embed = new EmbedBuilder()
-    .setTitle('⚙️  Admin Panel')
-    .setColor(COLORS.primary)
-    .setDescription(description)
-    .setFooter({ text: buildFooter() });
-
-  // Cast at the boundary: an ActionRowBuilder built without a type argument is
-  // ActionRowBuilder<AnyComponentBuilder>, which is wider than the row types
-  // discord.js accepts in its own reply options. The rows really are select
-  // rows, so this is the single place that says so.
   return /** @type {import('discord.js').InteractionEditReplyOptions} */ ({
-    embeds: [embed],
-    components: buildPanelComponents()
+    ...renderPanelV2(view),
+    flags: MessageFlags.IsComponentsV2,
   });
 }
 
 module.exports = {
   humanizeAgo,
   buildFooter,
+  useComponentsV2,
+  collectPanelView,
   buildPanelPayload,
 };

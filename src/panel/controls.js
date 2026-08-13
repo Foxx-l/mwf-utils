@@ -16,7 +16,7 @@
  * gated: a broken `.env` is exactly when an admin needs them.
  */
 
-const { ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
+const { ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { hasEnv } = require('../config/env');
 const { isConfigured } = require('./features');
 
@@ -146,19 +146,77 @@ function buildPanelComponents() {
   return rows;
 }
 
+// ── Buttons (the container layout only) ──────────────────────────────────────
+
+/**
+ * The one-click action each feature row carries as its section accessory. Only
+ * actions that need no parameter and no confirmation qualify — a Section takes
+ * exactly one accessory, so this is the feature's "do the obvious thing".
+ *
+ * @typedef {Object} SectionAction
+ * @property {string} feature
+ * @property {string} customId
+ * @property {string} label
+ * @property {string} emoji
+ *
+ * @type {SectionAction[]}
+ */
+const SECTION_ACTIONS = [
+  { feature: 'faction',  customId: 'admin_faction_reload', label: 'Reload', emoji: '🔄' },
+  { feature: 'rotation', customId: 'admin_rotation_sync',  label: 'Sync',   emoji: '📤' },
+  { feature: 'nodes',    customId: 'admin_nodes_post',     label: 'Post',   emoji: '📤' },
+  { feature: 'midcap',   customId: 'admin_midcap_post',    label: 'Poll',   emoji: '📊' },
+  { feature: 'signups',  customId: 'admin_signups_post',   label: 'Post',   emoji: '📮' },
+];
+
+/** The diagnostics row, never gated: a broken .env is when it is needed most. */
+const UTILITY_BUTTONS = [
+  { customId: 'admin_panel_refresh',   label: 'Refresh',          emoji: '🔄' },
+  { customId: 'admin_healthcheck_run', label: 'Healthcheck',      emoji: '🩺' },
+  { customId: 'admin_postall',         label: 'Post all missing', emoji: '📮' },
+];
+
+/** @param {string} featureKey */
+function sectionAction(featureKey) {
+  return SECTION_ACTIONS.find(action => action.feature === featureKey) ?? null;
+}
+
+/** @param {{customId: string, label: string, emoji: string}} spec */
+function actionButton(spec) {
+  return new ButtonBuilder()
+    .setCustomId(spec.customId)
+    .setLabel(spec.label)
+    .setEmoji(spec.emoji)
+    .setStyle(ButtonStyle.Secondary);
+}
+
+/** The Refresh / Healthcheck / Post-all row. */
+function buildUtilityRow() {
+  return new ActionRowBuilder().addComponents(UTILITY_BUTTONS.map(actionButton));
+}
+
 /**
  * The customIds that sit *on the panel message*. A component interaction with
  * one of these can redraw the panel through its own token; anything else (a
  * confirm dialog, an edit preview) lives on a different message and cannot.
  */
-const PANEL_CONTROL_IDS = new Set(MENUS.map(menu => menu.id));
+const PANEL_CONTROL_IDS = new Set([
+  ...MENUS.map(menu => menu.id),
+  ...SECTION_ACTIONS.map(action => action.customId),
+  ...UTILITY_BUTTONS.map(button => button.customId),
+]);
 
 module.exports = {
   MENUS,
   MAX_ROWS,
   MAX_OPTIONS,
+  SECTION_ACTIONS,
+  UTILITY_BUTTONS,
   optionEnabled,
   enabledOptions,
   buildPanelComponents,
+  sectionAction,
+  actionButton,
+  buildUtilityRow,
   PANEL_CONTROL_IDS,
 };
