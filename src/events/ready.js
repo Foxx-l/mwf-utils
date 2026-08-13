@@ -11,6 +11,8 @@ const { ensureDataDir, DATA_DIR } = require('../utils/dataDir');
 const pkg = require('../../package.json');
 
 module.exports = {
+  // eventHandler reads name/once/execute; refreshFactionButtons is exported for
+  // its test.
   name: Events.ClientReady,
   once: true,
   async execute(client) {
@@ -47,7 +49,8 @@ module.exports = {
       )
       .setTimestamp();
     sendLog(client, startupEmbed).catch(() => {});
-  }
+  },
+  refreshFactionButtons,
 };
 
 /**
@@ -68,7 +71,7 @@ async function refreshFactionButtons(client) {
       m.embeds.some(e => e.title === 'Choose your side!')
     );
     if (!factionMessage) return;
-    await factionMessage.edit({ components: createFactionButtons() });
+    await factionMessage.edit({ components: [createFactionButtons()] });
     logger.info('Faction embed buttons refreshed with current emojis.');
   } catch (err) {
     logger.warn(`Could not refresh faction buttons: ${err.message}`);
