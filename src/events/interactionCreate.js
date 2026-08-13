@@ -69,8 +69,6 @@ const {
   handleTeamRepReject,
 } = require('../handlers/interactions/teamrepHandler');
 const {
-  handleAdminSignupsOpen,
-  handleAdminSignupsRefresh,
   handleAdminSignupsPost,
   handleAdminSignupsSync,
   handleAdminSignupsToggle,
@@ -192,17 +190,38 @@ const SELECT_ROUTES = [
     run: async i => { await i.deferUpdate(); return refreshPanel(i); } },
   { id: 'admin_panel_select', value: 'postall',     track: 'Post All Missing',  refresh: true, run: handleAdminPostAllMissing },
   { id: 'admin_panel_select', value: 'midcap',      track: 'Post Mid Cap Poll', refresh: true, run: handleAdminPostMidCapPoll },
-  { id: 'admin_panel_select', value: 'signups',     run: handleAdminSignupsOpen },
   // The healthcheck heals stale cache pointers, so statuses can move.
   { id: 'admin_panel_select', value: 'healthcheck', refresh: true, run: handleAdminHealthcheck },
   { id: 'admin_panel_select', value: 'clearlogs',   run: handleAdminClearLogsConfirm },
 
-  // Signups sub-panel (its own ephemeral message opened from the panel)
-  { id: 'admin_signups_select', value: 'post',    track: 'Post Signups',            run: handleAdminSignupsPost },
-  { id: 'admin_signups_select', value: 'sync',    track: 'Sync Signup Channels',    run: handleAdminSignupsSync },
-  { id: 'admin_signups_select', value: 'toggle',  track: 'Toggle Signup Auto-Post', run: handleAdminSignupsToggle },
+  // Signups, now a row on the panel itself (Post is the section button above).
+  // `legacy` marks a value no control renders any more but a sub-panel left open
+  // from before the deploy still can.
+  { id: 'admin_signups_select', value: 'post', legacy: true, track: 'Post Signups', refresh: true, run: handleAdminSignupsPost },
+  { id: 'admin_signups_select', value: 'sync',    track: 'Sync Signup Channels',    refresh: true, run: handleAdminSignupsSync },
+  { id: 'admin_signups_select', value: 'toggle',  track: 'Toggle Signup Auto-Post', refresh: true, run: handleAdminSignupsToggle },
   { id: 'admin_signups_select', value: 'cancel',  run: handleAdminSignupsCancelConfirm },
-  { id: 'admin_signups_select', value: 'refresh', run: handleAdminSignupsRefresh },
+
+  // ── The container layout's menus ───────────────────────────────────────────
+  // Same handlers, own value namespace. The five menu ids above stay routed so
+  // a panel opened before the deploy keeps working.
+  { id: 'admin_content_select', valuePrefix: 'lineup:edit:',
+    run: i => handleAdminEditCaption(i, i.values[0].split(':')[2]) },
+  { id: 'admin_content_select', valuePrefix: 'server:post:',
+    track: i => `Post Server Details — ${i.values[0].split(':')[2]}`,
+    refresh: true,
+    run: i => handleAdminPostServer(i, i.values[0].split(':')[2]) },
+  { id: 'admin_content_select', valuePrefix: 'server:edit:',
+    run: i => handleAdminEditServer(i, i.values[0].split(':')[2]) },
+  { id: 'admin_content_select', value: 'nodes:edit', run: handleAdminEditNodes },
+
+  { id: 'admin_rotation_select', value: 'edit',    run: handleAdminEditRotation },
+  { id: 'admin_rotation_select', value: 'advance', run: handleAdminAdvanceConfirm },
+  { id: 'admin_rotation_select', value: 'reset',   run: handleRotationResetConfirm },
+  { id: 'admin_rotation_select', value: 'undo',    track: 'Undo Rotation', refresh: true, run: handleAdminUndoRotation },
+
+  { id: 'admin_danger_select', value: 'faction:reset', run: handleAdminResetConfirm },
+  { id: 'admin_danger_select', value: 'clearlogs',     run: handleAdminClearLogsConfirm },
 ];
 
 const BUTTON_ROUTES = [

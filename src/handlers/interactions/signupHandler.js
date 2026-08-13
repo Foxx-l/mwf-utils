@@ -15,9 +15,6 @@
 
 const {
   EmbedBuilder,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
   ChannelType,
   OverwriteType,
   PermissionFlagsBits,
@@ -26,6 +23,7 @@ const {
 const logger = require('../../utils/logger');
 const { COLORS, GLYPHS, statusGlyph } = require('../../config/theme');
 const { confirmDialog } = require('../../utils/embeds');
+const { ackPanelAction, reportPanelResult } = require('../../panel/respond');
 const { loadTags } = require('../../utils/tagStore');
 const store = require('../../utils/signupStore');
 const raidhelper = require('../../utils/raidhelper');
@@ -444,74 +442,10 @@ function resultLines(results, created = [], warnings = []) {
 }
 
 /**
- * The Signups sub-panel payload: status embed + its own action dropdown.
- * (Opened from the main panel, which already uses all 5 component rows.)
- * @param {import('discord.js').Guild|null} guild
- * @param {string[]} [extraLines] appended action results
+ * The signups status line on the panel (`null` keeps the panel clean when the
+ * feature is unconfigured). The counting lives here rather than in the panel
+ * because only this module knows what "posted" means for a match day.
  */
-function buildSignupsPayload(guild, extraLines = []) {
-  const state = store.getState();
-  const match = nextMatchDate();
-  const tags = loadTags();
-  const wanted = [...tags, SOLO_KEY];
-  const posted = store.eventsForDate(match.date);
-  const postedCount = wanted.filter(key => posted[key]).length;
-
-  const category = state.category_id && guild ? guild.channels.cache.get(state.category_id) : null;
-
-  const rows = [
-    `📅 **Next match**   ${match.date}, briefing ${signupEventTime()}`,
-    `📮 **Posted**   ${postedCount}/${wanted.length} (${tags.length} clans + solo)`,
-    `🔁 **Auto-post**   ${state.auto_post ? `${GLYPHS.ok} on (after each match)` : `${GLYPHS.missing} off`}`,
-    `🗂️ **Category**   ${category ? `${GLYPHS.ok} ${category.name}` : `${GLYPHS.missing} not created yet`}`,
-    `🏷️ **Clans**   ${tags.length ? tags.join(', ') : '— none (add tags first)'}`,
-  ];
-  if (!process.env.RAIDHELPER_API_KEY) rows.push('⚠️ `RAIDHELPER_API_KEY` is not set — posting will fail.');
-  if (!process.env.RAIDHELPER_BOT_ID) rows.push('⚠️ `RAIDHELPER_BOT_ID` is not set — RaidHelper may not see private channels.');
-  if (extraLines.length) rows.push('', ...extraLines);
-
-  const embed = new EmbedBuilder()
-    .setTitle('📅  Signups')
-    .setColor(COLORS.primary)
-    .setDescription(rows.join('\n'));
-
-  const menu = new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId('admin_signups_select')
-      .setPlaceholder('📅  Signups — choose action')
-      .addOptions(
-        new StringSelectMenuOptionBuilder()
-          .setValue('post')
-          .setLabel('Post signups now')
-          .setDescription(`Create the RaidHelper events for ${match.date}.`)
-          .setEmoji('📮'),
-        new StringSelectMenuOptionBuilder()
-          .setValue('sync')
-          .setLabel('Sync channels')
-          .setDescription('Create missing category/channels for the current tag list.')
-          .setEmoji('🔧'),
-        new StringSelectMenuOptionBuilder()
-          .setValue('toggle')
-          .setLabel(state.auto_post ? 'Disable auto-post' : 'Enable auto-post')
-          .setDescription('Posts the next match by itself, right after each match.')
-          .setEmoji(state.auto_post ? '⏸️' : '▶️'),
-        new StringSelectMenuOptionBuilder()
-          .setValue('cancel')
-          .setLabel('Cancel next match signups')
-          .setDescription(`Delete the posted events for ${match.date}.`)
-          .setEmoji('🗑️'),
-        new StringSelectMenuOptionBuilder()
-          .setValue('refresh')
-          .setLabel('Refresh')
-          .setDescription('Re-read the signup status.')
-          .setEmoji('🔄')
-      )
-  );
-
-  return { embeds: [embed], components: [menu] };
-}
-
-/** Panel row for the main /panel embed (null keeps the panel clean when unconfigured). */
 function signupsPanelRow() {
   if (!process.env.RAIDHELPER_API_KEY) return null;
   const state = store.getState();
@@ -524,19 +458,26 @@ function signupsPanelRow() {
   return `📅 **Signups**   ${icon}   _${match.date} · ${postedCount}/${wanted.length} posted · ${auto}_`;
 }
 
+/** The result embed an action reports back, and copies to the admin log. */
+function resultEmbed(title, lines, match) {
+  return new EmbedBuilder()
+    .setColor(COLORS.primary)
+    .setTitle(title)
+    .setDescription(lines.join('\n'))
+    .addFields({ name: 'Match', value: match.date, inline: true })
+    .setTimestamp();
+}
+
 // ── Interaction handlers (wired in interactionCreate.js) ────────────────────
-
-/** Opens the Signups sub-panel (from the main panel's Panel utils menu). */
-async function handleAdminSignupsOpen(interaction) {
-  return interaction.reply({ ...buildSignupsPayload(interaction.guild), flags: MessageFlags.Ephemeral });
-}
-
-async function handleAdminSignupsRefresh(interaction) {
-  return interaction.update(buildSignupsPayload(interaction.guild));
-}
+//
+// Signups used to be a sub-panel: its own ephemeral message with a status embed
+// and a dropdown, opened from the main panel, because the panel had no component
+// rows left. It is a row on the panel now, so each action reports its result as
+// an ephemeral follow-up and lets the router redraw the panel — which is where
+// the status lives.
 
 async function handleAdminSignupsPost(interaction) {
-  await interaction.deferUpdate();
+  await ackPanelAction(interaction);
   const match = nextMatchDate();
   // Leader is the bot (or SIGNUP_LEADER_ID), not the clicking admin —
   // RaidHelper DMs the leader an "event was created!" note per event, which
@@ -544,36 +485,30 @@ async function handleAdminSignupsPost(interaction) {
   const { results, created, warnings } = await postSignups(interaction.guild, match, {
     leaderId: process.env.SIGNUP_LEADER_ID || interaction.client.user.id,
   });
-  await interaction.editReply(
-    buildSignupsPayload(interaction.guild, [`**Post for ${match.date}:**`, ...resultLines(results, created, warnings)])
-  );
+  const lines = resultLines(results, created, warnings);
 
-  const embed = new EmbedBuilder()
-    .setColor(COLORS.primary)
-    .setTitle('📅 Signups Posted')
-    .setDescription(resultLines(results, created, warnings).join('\n'))
-    .addFields(
-      { name: '👤 Admin', value: `<@${interaction.user.id}>`, inline: true },
-      { name: 'Match', value: match.date, inline: true }
-    )
-    .setTimestamp();
-  await sendLog(interaction.client, embed);
+  await reportPanelResult(interaction, { embeds: [resultEmbed('📅 Signups Posted', lines, match)] });
+  await sendLog(interaction.client, resultEmbed('📅 Signups Posted', lines, match)
+    .addFields({ name: '👤 Admin', value: `<@${interaction.user.id}>`, inline: true }));
 }
 
 async function handleAdminSignupsSync(interaction) {
-  await interaction.deferUpdate();
+  await ackPanelAction(interaction);
   const { created, warnings } = await ensureStructure(interaction.guild, { applyOverwrites: true });
   const lines = created.length ? [`🆕 Created: ${created.join(', ')}`] : ['✅ Structure is up to date.'];
   for (const w of warnings) lines.push(`⚠️ ${w}`);
-  await interaction.editReply(buildSignupsPayload(interaction.guild, lines));
+  await reportPanelResult(interaction, { embeds: [resultEmbed('🔧 Signup Channels Synced', lines, nextMatchDate())] });
 }
 
 async function handleAdminSignupsToggle(interaction) {
+  await ackPanelAction(interaction);
   const next = !store.getState().auto_post;
   store.setAutoPost(next);
-  return interaction.update(
-    buildSignupsPayload(interaction.guild, [next ? '▶️ Auto-post **enabled**.' : '⏸️ Auto-post **disabled**.'])
-  );
+  await reportPanelResult(interaction, {
+    content: next
+      ? '▶️ Auto-post **enabled** — the next match posts by itself after each match.'
+      : '⏸️ Auto-post **disabled** — post from the panel instead.',
+  });
 }
 
 /** Ephemeral confirm before deleting posted events (destructive). */
@@ -581,40 +516,47 @@ async function handleAdminSignupsCancelConfirm(interaction) {
   const match = nextMatchDate();
   const posted = Object.keys(store.eventsForDate(match.date)).length;
   if (!posted) {
-    return interaction.update(buildSignupsPayload(interaction.guild, [`⚪ Nothing posted for ${match.date}.`]));
+    return interaction.reply({
+      content: `${GLYPHS.idle} Nothing is posted for ${match.date}.`,
+      flags: MessageFlags.Ephemeral,
+    });
   }
-  return interaction.update(confirmDialog({
-    title: 'Cancel Signups',
-    description: `This deletes **${posted}** RaidHelper event(s) for **${match.date}** — signups on them are lost.\n\nAre you sure?`,
-    confirmId: 'admin_signups_cancel_confirm',
-    cancelId: 'admin_signups_cancel_cancel',
-    confirmLabel: 'Delete events',
-    cancelLabel: 'Keep them',
-  }));
+  // A reply, not an update: the dropdown that opens this sits on the panel, and
+  // an update would replace the panel with the dialog.
+  return interaction.reply({
+    ...confirmDialog({
+      title: 'Cancel Signups',
+      description: `This deletes **${posted}** RaidHelper event(s) for **${match.date}** — signups on them are lost.\n\nAre you sure?`,
+      confirmId: 'admin_signups_cancel_confirm',
+      cancelId: 'admin_signups_cancel_cancel',
+      confirmLabel: 'Delete events',
+      cancelLabel: 'Keep them',
+    }),
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 async function handleAdminSignupsCancel(interaction) {
+  // This button lives on the confirm dialog, so the result replaces the dialog.
   await interaction.deferUpdate();
   const match = nextMatchDate();
   const results = await cancelSignups(match.date);
-  await interaction.editReply(
-    buildSignupsPayload(interaction.guild, [`**Cancelled ${match.date}:**`, ...resultLines(results)])
-  );
+  const lines = resultLines(results);
 
-  const embed = new EmbedBuilder()
-    .setColor(COLORS.primary)
-    .setTitle('🗑️ Signups Cancelled')
-    .setDescription(resultLines(results).join('\n'))
-    .addFields(
-      { name: '👤 Admin', value: `<@${interaction.user.id}>`, inline: true },
-      { name: 'Match', value: match.date, inline: true }
-    )
-    .setTimestamp();
-  await sendLog(interaction.client, embed);
+  await interaction.editReply({
+    embeds: [resultEmbed('🗑️ Signups Cancelled', lines, match)],
+    components: [],
+  });
+  await sendLog(interaction.client, resultEmbed('🗑️ Signups Cancelled', lines, match)
+    .addFields({ name: '👤 Admin', value: `<@${interaction.user.id}>`, inline: true }));
 }
 
 async function handleAdminSignupsCancelCancel(interaction) {
-  return interaction.update(buildSignupsPayload(interaction.guild, ['Cancelled — the events stay up.']));
+  return interaction.update({
+    content: 'Cancelled — the events stay up.',
+    embeds: [],
+    components: [],
+  });
 }
 
 module.exports = {
@@ -630,9 +572,6 @@ module.exports = {
   autoPostSignups,
   // panel
   signupsPanelRow,
-  buildSignupsPayload,
-  handleAdminSignupsOpen,
-  handleAdminSignupsRefresh,
   handleAdminSignupsPost,
   handleAdminSignupsSync,
   handleAdminSignupsToggle,

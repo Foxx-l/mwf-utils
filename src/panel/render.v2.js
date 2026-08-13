@@ -27,7 +27,7 @@ const {
 } = require('discord.js');
 
 const { COLORS } = require('../config/theme');
-const { buildPanelComponents, buildUtilityRow, sectionAction, actionButton } = require('./controls');
+const { MENUS_V2, buildPanelComponents, buildUtilityRow, sectionAction, actionButton } = require('./controls');
 const { assertBudget } = require('./budget');
 const { summaryLine, legendLine } = require('./rows');
 
@@ -86,7 +86,7 @@ function renderPanelV2({ rows, meta, footer }) {
   // footer it replaces.
   container.addTextDisplayComponents(text(`-# ${legendLine()}\n-# ${footer}`));
 
-  for (const selectRow of buildPanelComponents()) {
+  for (const selectRow of buildPanelComponents(MENUS_V2)) {
     container.addActionRowComponents(/** @type {*} */ (selectRow));
   }
   container.addActionRowComponents(/** @type {*} */ (buildUtilityRow()));
