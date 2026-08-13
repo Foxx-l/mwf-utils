@@ -2,13 +2,17 @@
 /**
  * rows.js — One status line per feature, plus the jump links they carry.
  *
- * Pure text: every builder takes probe results and returns a string (or `null`
- * to leave the feature out), so the renderers stay free of Discord calls and
- * the lines are assertable in tests.
+ * Pure text: every builder takes probe results and returns a string, or `null`
+ * when the feature isn't configured — an unconfigured feature is listed once
+ * under Setup instead of showing a 🔴 that no action can clear. So a red dot
+ * always means "set up, but not posted", which is exactly what Post All Missing
+ * acts on.
  */
 
 const { GLYPHS, statusGlyph } = require('../config/theme');
+const { firstCsvValue } = require('../config/env');
 const { monthHeader } = require('../utils/rotationState');
+const { isConfigured } = require('./features');
 const { signupsPanelRow } = require('../handlers/interactions/signupHandler');
 
 const OK = GLYPHS.ok;
@@ -38,12 +42,6 @@ function channelSuffix(guildId, channelId) {
   return url ? `  [${GLYPHS.jump}](${url})` : '';
 }
 
-function firstChannel(envKey) {
-  const raw = process.env[envKey];
-  if (!raw) return null;
-  return String(raw).split(',').map(s => s.trim()).find(Boolean) ?? null;
-}
-
 // Prefer a direct message jump when available; otherwise fall back to the
 // destination channel so admins always get a clickable target.
 function bestSuffix(guildId, locator, fallbackChannelId) {
@@ -52,20 +50,26 @@ function bestSuffix(guildId, locator, fallbackChannelId) {
 }
 
 function factionRow(locator, guildId) {
+  if (!isConfigured('faction')) return null;
   const ch = process.env.FACTION_CHANNEL;
   const icon = locator ? OK : NO;
   return `🛡️ **Faction Embed**   ${icon}${bestSuffix(guildId, locator, ch)}`;
 }
 
-function serverPairRow(emojiLabel, l1, l2, guildId, envKey) {
+/**
+ * Lineup and Server Details are S1/S2 pairs, so one row carries two states.
+ * @param {string} feature 'lineup' | 'server'
+ */
+function serverPairRow(feature, emojiLabel, l1, l2, guildId, envKey) {
+  if (!isConfigured(feature)) return null;
   const ch = process.env[envKey];
-  if (!ch) return `${emojiLabel}   ${NO}`;
   const s1 = `${l1 ? OK : NO}${bestSuffix(guildId, l1, ch)}`;
   const s2 = `${l2 ? OK : NO}${bestSuffix(guildId, l2, ch)}`;
   return `${emojiLabel}   S1 ${s1} • S2 ${s2}`;
 }
 
 function rotationRow(locator, guildId) {
+  if (!isConfigured('rotation')) return null;
   const ch = process.env.MAP_ROTATION_CHANNEL;
   if (!locator) return `🗺️ **Map Rotation**   ${NO}${channelSuffix(guildId, ch)}`;
   const months = locator.state?.months;
@@ -86,15 +90,25 @@ function midCapRow(state, guildId) {
 }
 
 function nodesRow({ total, hits }, guildId) {
-  if (!total) return `📍 **Nodes**   ${NO}${channelSuffix(guildId, firstChannel('NODES_CHANNELS'))}`;
+  if (!isConfigured('nodes') || !total) return null;
   const posted = hits.length;
   const icon = statusGlyph(posted, total);
   // Prefer jumping to the first posted embed; otherwise link to the first
   // configured Nodes channel so the admin can still navigate there.
   const suffix = hits.length
     ? jumpSuffix(guildId, hits[0].channelId, hits[0].messageId)
-    : channelSuffix(guildId, firstChannel('NODES_CHANNELS'));
+    : channelSuffix(guildId, firstCsvValue('NODES_CHANNELS'));
   return `📍 **Nodes**   ${icon}${suffix}   _(${posted}/${total} channel${total === 1 ? '' : 's'})_`;
+}
+
+/**
+ * The one line that says what isn't set up, so hiding a feature's row never
+ * hides the feature itself.
+ * @param {readonly {label: string}[]} idle
+ */
+function idleRow(idle) {
+  if (!idle.length) return null;
+  return `💤 **Not configured**   ${idle.map(f => f.label).join(', ')}`;
 }
 
 module.exports = {
@@ -105,8 +119,8 @@ module.exports = {
   channelUrl,
   jumpSuffix,
   channelSuffix,
-  firstChannel,
   bestSuffix,
+  idleRow,
   factionRow,
   serverPairRow,
   rotationRow,
