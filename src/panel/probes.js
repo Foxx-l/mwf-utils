@@ -7,12 +7,21 @@
  * and degrade to `null` so drawing the panel can never throw; the cost is that
  * an unreachable channel looks exactly like "not posted", which is what the
  * Healthcheck action exists to tell apart.
+ *
+ * Probes are **reads**. They used to write the lineup/server caches back on
+ * every draw, which meant opening the panel had side effects — and with the
+ * panel now redrawing after every action, that would have doubled. The two
+ * cache readers recover on their own when they find nothing (see
+ * handleAdminEditCaption / handleAdminEditServer), and the healthcheck handles
+ * the opposite case of a pointer whose message is gone.
  */
 
-const { loadLineupData, loadServerData, saveLineupData, saveServerData } = require('../utils/lineupStore');
+const { loadLineupData, loadServerData } = require('../utils/lineupStore');
 const { loadRotationMsgId, loadRotationState, rotationHistoryCount } = require('../utils/rotationStore');
 const { matchKey, loadPoll } = require('../utils/midCapStore');
 const { getMatch } = require('../handlers/interactions/midCapHandler');
+const { findLastBotMessage, hasEmbedTitle, hasLineupImageFor } = require('../handlers/interactions/shared');
+const { EMBED_TITLES } = require('../config/constants');
 
 /**
  * @typedef {{ channelId: string, messageId: string }} PanelLocator
@@ -34,70 +43,51 @@ async function messageLocator(client, channelId, messageId) {
   }
 }
 
-async function probeFaction(client) {
-  const ch = process.env.FACTION_CHANNEL;
-  if (!ch) return null;
+/**
+ * The one probe algorithm: trust the cached pointer if its message is still
+ * there, otherwise scan the channel's recent history for the embed itself.
+ * @param {*} client
+ * @param {{ channelId: string|undefined, cachedId?: string, predicate: (m: *) => boolean }} opts
+ * @returns {Promise<PanelLocator|null>}
+ */
+async function probeCachedOrScan(client, { channelId, cachedId, predicate }) {
+  if (!channelId) return null;
   try {
-    const channel = await client.channels.fetch(ch);
+    const cached = await messageLocator(client, channelId, cachedId);
+    if (cached) return cached;
+
+    const channel = await client.channels.fetch(channelId);
     if (!channel) return null;
-    const msgs = await channel.messages.fetch({ limit: 50 });
-    const match = msgs.find(m =>
-      m.author.id === client.user.id &&
-      m.embeds.some(e => e.title === 'Choose your side!')
-    );
-    return match ? { channelId: ch, messageId: match.id } : null;
+    const match = await findLastBotMessage(channel, predicate);
+    return match ? { channelId, messageId: match.id } : null;
   } catch (_) {
     return null;
   }
 }
 
-async function probeLineup(client, server) {
+function probeFaction(client) {
+  return probeCachedOrScan(client, {
+    channelId: process.env.FACTION_CHANNEL,
+    predicate: hasEmbedTitle(EMBED_TITLES.faction),
+  });
+}
+
+function probeLineup(client, server) {
   const channelId = process.env.LINEUP_CHANNEL;
-  if (!channelId) return null;
-  const data = loadLineupData(channelId, server);
-  const cached = await messageLocator(client, channelId, data?.messageId);
-  if (cached) return cached;
-
-  try {
-    const channel = await client.channels.fetch(channelId);
-    const messages = await channel.messages.fetch({ limit: 50 });
-    const serverLabel = server === 'S1' ? 'Server 1' : 'Server 2';
-    const match = messages.find(m =>
-      m.author.id === client.user.id
-      && m.embeds.some(e => e.image && e.description?.includes(`**${serverLabel}**`))
-    );
-    if (!match) return null;
-    const caption = match.embeds[0]?.description || '';
-    saveLineupData(channelId, match.id, caption, server);
-    return { channelId, messageId: match.id };
-  } catch (_) {
-    return null;
-  }
+  return probeCachedOrScan(client, {
+    channelId,
+    cachedId: channelId ? loadLineupData(channelId, server)?.messageId : undefined,
+    predicate: hasLineupImageFor(server),
+  });
 }
 
-async function probeServer(client, server) {
+function probeServer(client, server) {
   const channelId = process.env.SERVER_DETAILS_CHANNEL;
-  if (!channelId) return null;
-  const data = loadServerData(channelId, server);
-  const cached = await messageLocator(client, channelId, data?.messageId);
-  if (cached) return cached;
-
-  try {
-    const channel = await client.channels.fetch(channelId);
-    const messages = await channel.messages.fetch({ limit: 50 });
-    const expectedTitle = `Server Details (${server})`;
-    const match = messages.find(m =>
-      m.author.id === client.user.id && m.embeds.some(e => e.title === expectedTitle)
-    );
-    if (!match) return null;
-    const fields = match.embeds[0]?.fields || [];
-    const serverName = fields.find(f => f.name.includes('Server Name'))?.value || 'Unknown';
-    const serverPassword = fields.find(f => f.name.includes('Password'))?.value || 'Unknown';
-    saveServerData(channelId, match.id, serverName, serverPassword, server);
-    return { channelId, messageId: match.id };
-  } catch (_) {
-    return null;
-  }
+  return probeCachedOrScan(client, {
+    channelId,
+    cachedId: channelId ? loadServerData(channelId, server)?.messageId : undefined,
+    predicate: hasEmbedTitle(EMBED_TITLES.serverDetails(server)),
+  });
 }
 
 async function probeRotation(client) {
@@ -130,20 +120,11 @@ async function probeNodes(client) {
     .split(',').map(s => s.trim()).filter(Boolean);
   if (!channels.length) return { total: 0, hits: [] };
 
-  const hits = await Promise.all(channels.map(async cid => {
-    try {
-      const ch = await client.channels.fetch(cid);
-      if (!ch) return null;
-      const msgs = await ch.messages.fetch({ limit: 50 });
-      const match = msgs.find(m =>
-        m.author.id === client.user.id &&
-        m.embeds.some(e => e.title === 'NODES')
-      );
-      return match ? { channelId: cid, messageId: match.id } : null;
-    } catch (_) {
-      return null;
-    }
-  }));
+  // One bad channel must not cost the others: each is probed independently.
+  const hits = await Promise.all(channels.map(cid => probeCachedOrScan(client, {
+    channelId: cid,
+    predicate: hasEmbedTitle(EMBED_TITLES.nodes),
+  })));
 
   return { total: channels.length, hits: hits.filter(Boolean) };
 }
@@ -171,6 +152,7 @@ async function probePanelState(client) {
 
 module.exports = {
   messageLocator,
+  probeCachedOrScan,
   probeFaction,
   probeLineup,
   probeServer,
